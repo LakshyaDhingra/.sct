@@ -40,9 +40,13 @@ Security boundary: Expiration prevents future injection through the manager. It 
 
 ### Dev requirements
 Lets add some static checks:
-- [react-doctor](https://www.react.doctor)
-- UI Tests (Eventually, once we have the UI core ready via the TODOs in 1, 2). Before every PR is merged, or before every final commit is pushed, ask claude to run UI tests independently on ur machine to catch any errors
-- Regression tests for core logic
-- AGENTS.md file with some required instructions
+### Dev requirements
 
+Let's add the following checks and requirements:
+- **[React Doctor](https://www.react.doctor):** Run automatically in GitHub Actions to detect React issues.
+- **Static checks:** TypeScript (`tsc --noEmit`), ESLint, Rust Clippy, and Rust formatting. All must pass before merging.
+- **Build checks:** Verify that the React frontend and Tauri desktop application compile successfully.
+- **UI tests:** Once the core UI is ready (TODOs 1 and 2), add automated UI tests. Before merging a PR or pushing the final commit, ask Claude to independently run UI tests locally and identify failures.
+- **Regression tests:** Add unit and integration tests for core logic, especially encryption, secret storage, expiration, and synchronization. Run them in CI.
+- **AGENTS.md:** Document architecture, coding conventions, required checks, test commands, and instructions for AI coding agents. Require agents to run relevant checks after making changes.
 
