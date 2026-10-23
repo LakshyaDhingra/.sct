@@ -37,3 +37,12 @@ Security boundary: Expiration prevents future injection through the manager. It 
 - Apply access restrictions and automatic expiry.
 - Show the corresponding activity in local SpacetimeDB.
 
+
+### Dev requirements
+Lets add some static checks:
+- [react-doctor](https://www.react.doctor)
+- UI Tests (Eventually, once we have the UI core ready via the TODOs in 1, 2). Before every PR is merged, or before every final commit is pushed, ask claude to run UI tests independently on ur machine to catch any errors
+- Regression tests for core logic
+- AGENTS.md file with some required instructions
+
+
