@@ -8,26 +8,30 @@
 - Show the corresponding activity in local SpacetimeDB.
 
 
-### MVP Feature List
+### MVP Feature Checklist
 
-1. Desktop App: macOS application built with Tauri, Rust, and TypeScript.
-2. Encrypted Storage: Store secrets in macOS Keychain.
-3. Project Isolation: Organize secrets by project and group.
-4. Secret Management: Create, read, update, and delete secrets.
-5. Runtime Injection: Inject secrets into applications without `.env` files.
-6. P2P Sharing: Securely transfer secrets through Tailscale or encrypted AirDrop packages.
-7. Access Control: Owners manage permissions. Recipients have injection-only access.
-8. Automatic Expiry: Delete shared secrets after a configurable time limit.
-9. Access Renewal: Request fresh secrets from the owner after expiration.
-10. Manual Rotation: Replace secrets and distribute updated values.
-11. Recipient Tracking: Record recipients, devices, and transfer timestamps.
-12. Audit Logs: Track access, sharing, rotation, and expiration locally.
-13. CLI: Manage secrets and launch applications from the terminal.
-14. MCP Integration: Allow Claude Code, Codex, and other agents to use authorized operations.
-15. Fetch.ai Integration: Enable local agent-to-agent communication using uAgents and direct local endpoints, without Agentverse.
-16. Secure Import: Import secrets from `.env` files, 1Password, AWS Secrets Manager, Infisical, Doppler, Vault, and Keychain.
-17. Secure Export: Export secrets to supported providers through authenticated APIs or CLIs.
-18. Local-First Architecture: No central secrets database, mandatory cloud storage, or application-managed server.
+- [ ] Desktop app: macOS application built with Tauri, Rust, and TypeScript.
+- [ ] Encrypted storage: Store secrets in macOS Keychain.
+- [ ] Project isolation: Use one demo project and the `dev` environment.
+- [ ] Secret management: Create, list, and delete the demo secret.
+- [ ] Runtime injection: Inject secrets into an approved application without a `.env` file.
+- [ ] P2P sharing: Transfer encrypted grants through Tailscale.
+- [ ] Access control: Give recipients injection-only access.
+- [ ] Automatic expiry: Delete expired recipient Keychain items and block new use.
+- [ ] Recipient tracking: Record recipients, devices, transfer status, and timestamps.
+- [ ] Audit logs: Record local metadata events for secret creation, sharing, injection, and expiry.
+- [ ] CLI: Manage the demo secret and launch the approved application.
+- [ ] MCP integration: Allow Claude Code to request approved Vault operations.
+- [ ] Local-first architecture: Keep secret values and metadata on the local devices.
+
+Deferred from the MVP:
+
+- [ ] AirDrop sharing.
+- [ ] Factory integration.
+- [ ] Access renewal.
+- [ ] Manual rotation.
+- [ ] Fetch.ai integration.
+- [ ] Provider import and export.
 
 Core stack: Tauri + Rust + macOS Keychain + SQLite metadata + Tailscale + AirDrop + MCP + Fetch.ai uAgents.
 
