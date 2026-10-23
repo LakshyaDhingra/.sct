@@ -2,11 +2,11 @@
 
 This document defines technical terms used in the MVP issues. Terms describe the planned design, not verified security guarantees.
 
-## Signing identity
+## App signing identity
 
 <a id="signing-identity"></a>
 
-A certificate and private key that identify the executable when macOS checks its code signature. Do not commit the private key.
+A certificate and private key that identify the Electron application when macOS checks its code signature. Do not commit the private key.
 
 ## Keychain
 
@@ -18,7 +18,7 @@ The macOS service that stores passwords and cryptographic keys. Vault uses it to
 
 <a id="stable-code-signature"></a>
 
-A code signature that uses the same signing identity after each build. This can keep macOS Keychain access consistent.
+A code signature that uses the same app signing identity after each build. This can keep macOS Keychain access consistent.
 
 ## SpacetimeDB
 
@@ -50,11 +50,11 @@ The act of providing a credential to a child process at start time, usually thro
 
 The part of the design that limits which processes receive credential values. Redaction and an MCP tool alone do not prevent exfiltration.
 
-## Daemon
+## Electron main process
 
-<a id="daemon"></a>
+<a id="electron-main-process"></a>
 
-A long-running local Rust process that manages Vault operations and database connections.
+The trusted Electron process that manages Keychain access, local files, SpacetimeDB, sharing, expiry, and approved process launch. Vault does not use a separate daemon.
 
 ## IPC
 
@@ -126,7 +126,7 @@ Time to live. The duration of a grant before Vault refuses new operations that u
 
 <a id="access-expiry"></a>
 
-The time when Vault stops new access and attempts to delete a received Keychain item. It cannot revoke a value already copied or used by a running process.
+The time when Vault stops new access and deletes the recipient's local encrypted secret file. The Electron cleanup task records the event in SpacetimeDB and sends an update to the admin when connected. It cannot revoke a value already copied or used by a running process.
 
 ## Audit event
 

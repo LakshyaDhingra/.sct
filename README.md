@@ -2,7 +2,7 @@
 
 ### MVP Feature Checklist
 
-- [ ] Desktop app: macOS application built with Tauri, Rust, and TypeScript ([#24](https://github.com/omavashia2005/calhacks-vault/issues/24), [#13](https://github.com/omavashia2005/calhacks-vault/issues/13)).
+- [ ] Desktop app: macOS application built with Electron and TypeScript ([#24](https://github.com/omavashia2005/calhacks-vault/issues/24), [#13](https://github.com/omavashia2005/calhacks-vault/issues/13)).
 - [ ] Encrypted storage: Store secrets in macOS Keychain ([#6](https://github.com/omavashia2005/calhacks-vault/issues/6), [#26](https://github.com/omavashia2005/calhacks-vault/issues/26)).
 - [ ] Project isolation: Use one demo project and the `dev` environment ([#7](https://github.com/omavashia2005/calhacks-vault/issues/7)).
 - [ ] Secret management: Create, list, and delete the demo secret ([#6](https://github.com/omavashia2005/calhacks-vault/issues/6), [#7](https://github.com/omavashia2005/calhacks-vault/issues/7), [#25](https://github.com/omavashia2005/calhacks-vault/issues/25)).
@@ -25,7 +25,7 @@ Deferred from the MVP:
 - [ ] Fetch.ai integration.
 - [ ] Provider import and export.
 
-Core stack: Tauri + Rust + macOS Keychain + SQLite metadata + Tailscale + AirDrop + MCP + Fetch.ai uAgents.
+Core stack: Electron + TypeScript + macOS Keychain + SpacetimeDB metadata + Tailscale + MCP.
 
 Security boundary: Expiration prevents future injection through the manager. It does not invalidate plaintext secrets previously copied or injected into running processes.
 
@@ -44,8 +44,8 @@ Lets add some static checks:
 
 Let's add the following checks and requirements:
 - **[React Doctor](https://www.react.doctor):** Run automatically in GitHub Actions to detect React issues.
-- **Static checks:** TypeScript (`tsc --noEmit`), ESLint, Rust Clippy, and Rust formatting. All must pass before merging.
-- **Build checks:** Verify that the React frontend and Tauri desktop application compile successfully.
+- **Static checks:** TypeScript (`tsc --noEmit`) and ESLint. Both must pass before merging.
+- **Build checks:** Verify that the React frontend and Electron desktop application compile successfully.
 - **UI tests:** Once the core UI is ready (TODOs 1 and 2), add automated UI tests. Before merging a PR or pushing the final commit, ask Claude to independently run UI tests locally and identify failures.
 - **Regression tests:** Add unit and integration tests for core logic, especially encryption, secret storage, expiration, and synchronization. Run them in CI.
 - **AGENTS.md:** Document architecture, coding conventions, required checks, test commands, and instructions for AI coding agents. Require agents to run relevant checks after making changes.
