@@ -6,6 +6,7 @@ import { rmSync } from 'node:fs'
 import { ProjectStore } from './projects'
 import { Vault } from './vault'
 import { runProject } from './launch'
+import { runAgent } from './agent'
 import { streamEnvironment } from './runtime'
 import { Sharing } from './sharing'
 import type { Reply } from '../shared/api'
@@ -84,6 +85,15 @@ function reportStartupError(error: unknown): void {
 app.setName('.sct')
 nativeTheme.themeSource = 'dark'
 app.whenReady().then(async () => {
+  if (launchArguments[0] === 'agent' || launchArguments[0] === 'mcp') {
+    app.dock?.hide()
+    if (launchArguments[0] === 'agent') app.exit(runAgent(launchArguments))
+    else {
+      await (await import('./mcp')).runMcp(launchArguments)
+      app.exit(0)
+    }
+    return
+  }
   const projects = new ProjectStore(join(app.getPath('userData'), 'projects.json'))
   const vault = new Vault(projects, join(app.getPath('userData'), 'settings.json'), homedir())
   await vault.start()
@@ -127,7 +137,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow().catch(reportStartupError)
   })
 }).catch((error: unknown) => {
-  if (launchArguments[0] === 'run' || launchArguments[0] === '_env') {
+  if (['run', '_env', 'agent', 'mcp'].includes(launchArguments[0])) {
     console.error(error instanceof Error ? error.message : 'The project command could not start.')
     app.exit(1)
   } else {

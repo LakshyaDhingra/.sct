@@ -26,6 +26,7 @@
     "test:ui": "bun run build && cd tests && playwright test --config ../playwright.config.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
     "@napi-rs/keyring": "^2.1.2",
     "gsap": "^3.15.0",
     "react": "^19.3.1",
