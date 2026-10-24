@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { z } from 'zod/v4'
 import { agentTools } from '../shared/agent'
-import type { AgentInput, AgentOperation, AgentOutcome, AgentRequestView, AgentResult } from '../shared/agent'
+import type { AgentCaller, AgentInput, AgentOperation, AgentOutcome, AgentRequestView, AgentResult } from '../shared/agent'
 import type { ProjectStore } from './projects'
 import { isProjectName } from './projects'
 import { resolveProject } from './runtime'
@@ -19,6 +19,8 @@ interface AgentServices {
   sharing: () => Promise<Sharing>
   shareFile: (path: string) => Promise<void>
   relayState: () => Promise<RelayState>
+  // Resolves to null when the caller fails the signature check of a listed agent.
+  caller: Promise<AgentCaller | null>
   executable: string
   demo: string
 }
@@ -42,6 +44,8 @@ export class AgentAccess {
 
   async submit(input: unknown, signal?: AbortSignal): Promise<AgentOutcome> {
     const id = randomUUID()
+    const caller = await this.services.caller
+    if (!caller) return { requestId: id, status: 'failed', error: 'The calling program failed its signature check. .sct rejected the request.' }
     try {
       if (this.closed || signal?.aborted) throw new Error('The caller disconnected.')
       const { submission, stdinValue } = requireSubmission(input)
@@ -52,7 +56,7 @@ export class AgentAccess {
         const cancel = () => this.cancel(id, 'refused')
         const request: PendingRequest = {
           ...prepared, submission, stdinValue,
-          view: { id, operation: submission.operation, status: 'pending', expiresAt: new Date(expiresAt).toISOString(), ...prepared.view },
+          view: { id, operation: submission.operation, status: 'pending', expiresAt: new Date(expiresAt).toISOString(), caller, ...prepared.view },
           controller: new AbortController(),
           timer: setTimeout(() => this.cancel(id, 'expired'), expiresAt - Date.now()),
           finish: (outcome) => {

@@ -78,6 +78,29 @@ All operations also accept an optional ISO 8601 `expiresAt` deadline.
 Unknown fields and arbitrary commands fail request checks.
 Keep vault storage outside source folders. No operation creates an `.env` file or replacement secret file in the project.
 
+## Caller authentication
+
+.sct identifies the calling program before it checks the request.
+It reads the parent processes up to the first process with a listed agent name.
+Then `codesign` checks that running process against the agent's signing requirement.
+
+| Agent | Executable name | Signing requirement |
+|---|---|---|
+| Claude Code | `claude` | Identifier `com.anthropic.claude-code`, Apple Developer ID, Team ID `Q6L2SF6YDW` |
+
+`src/main/caller.ts` contains this list.
+The MCP client is usually the direct parent of `sct mcp`.
+A shell tool usually starts `sct agent`, so the agent is a more distant ancestor.
+
+- A listed agent that passes its check becomes a verified caller. The approval window shows its name.
+- A process with a listed agent name that fails the check is an impostor. .sct rejects each request before local approval.
+  The result has status `failed` and names the failed signature check.
+- A caller with no listed agent among its ancestors is unverified. The request still requires local approval.
+
+Caller authentication identifies the program. It does not replace local approval.
+A verified agent can still request an operation that the user must refuse.
+Another program that the verified agent starts also passes this check.
+
 ## Local approval
 
 Each request requires explicit approval in the local .sct window.

@@ -11,6 +11,7 @@ import { Vault } from './vault'
 import { runProject } from './launch'
 import { runAgent, writeCliOutput } from './agent'
 import { AgentAccess } from './agent-access'
+import { identifyCaller } from './caller'
 import { streamEnvironment } from './runtime'
 import { Sharing } from './sharing'
 import type { Relay } from './relay-connection'
@@ -186,6 +187,7 @@ async function runAgentSession(): Promise<number> {
   let sessionSharing: Sharing | undefined
   let sharingReady: Promise<void> | undefined
   let relay: Promise<Relay> | undefined
+  const caller = identifyCaller()
   const getSharing = async () => {
     await getAccess()
     if (!sessionSharing) throw new Error('The local sharing service is unavailable.')
@@ -207,6 +209,7 @@ async function runAgentSession(): Promise<number> {
         changed: () => mainWindow?.webContents.send('agent:changed'),
         sharing: getSharing,
         shareFile: sendToNearbyMac,
+        caller,
         relayState: async () => {
           relay ??= (async () => {
             const { Relay, relayServer } = await import('./relay-connection')
