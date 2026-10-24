@@ -120,6 +120,14 @@ export class Vault {
     })
   }
 
+  listProjectSecrets(projectId: string): Promise<SecretMetadata[]> {
+    return this.serialize(async () => {
+      this.root = await this.readRoot()
+      const project = await this.projects.find(projectId)
+      return (await this.readSecrets(project)).map(({ id, name }) => ({ id, name, projectId: project.id }))
+    })
+  }
+
   addSecret(input: unknown): Promise<SecretMetadata> {
     return this.serialize(async () => {
       const { projectId, name, value } = requireSecretInput(input)
@@ -173,6 +181,7 @@ export class Vault {
     use: (project: Project, secrets: { name: string; value: Buffer }[]) => T | Promise<T>): Promise<T> {
     return this.serialize(async () => {
       const selected = requireSecretIds(ids)
+      this.root = await this.readRoot()
       const project = await this.projects.find(projectId)
       const stored = await this.readSecrets(project)
       const values: { name: string; value: Buffer }[] = []
@@ -267,10 +276,7 @@ export class Vault {
     return this.serialize(async () => {
       this.root = await this.readRoot()
       const project = await this.projects.find(projectId)
-      const storage = relative(project.directory, this.location())
-      if (!isAbsolute(storage) && storage !== '..' && !storage.startsWith(`..${sep}`)) {
-        throw new Error('Move vault storage outside the project folder before launch.')
-      }
+      requireExternalVault(project, this.location())
       const environment: Record<string, string> = {}
       try {
         const reads = await Promise.allSettled((await this.readSecrets(project, true)).map(
@@ -462,6 +468,13 @@ function fileData(project: Project): Buffer {
 
 function valueData(project: Project, id: string): Buffer {
   return Buffer.from(`${project.id}/${id}`)
+}
+
+export function requireExternalVault(project: Project, location: string): void {
+  const storage = relative(project.directory, location)
+  if (!isAbsolute(storage) && storage !== '..' && !storage.startsWith(`..${sep}`)) {
+    throw new Error('Move vault storage outside the project folder before launch.')
+  }
 }
 
 function encodeSealed({ iv, tag, ciphertext }: Sealed): Pick<StoredSecret, 'iv' | 'tag' | 'value'> {
