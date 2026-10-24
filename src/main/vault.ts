@@ -107,8 +107,10 @@ export class Vault {
   deleteProject(id: unknown): Promise<void> {
     return this.serialize(() => this.projects.remove(id, async (project) => {
       const secrets = await this.readSecrets(project)
+      let remaining = secrets
+      for (const secret of secrets) remaining = await this.removeSecret(project, remaining, secret.id)
       await rm(this.projectDirectory(project.name), { recursive: true, force: true })
-      await Promise.all([...secrets.map((secret) => secret.id), 'file'].map((account) => this.entry(project, account).deleteCredential()))
+      await this.entry(project, 'file').deleteCredential()
     }))
   }
 
@@ -157,16 +159,27 @@ export class Vault {
     })
   }
 
-  // The file changes first. A failed Keychain deletion leaves an unused key but never a secret without its key.
   deleteSecret(input: unknown): Promise<void> {
     return this.serialize(async () => {
       const { projectId, id } = requireSecretReference(input)
       const project = await this.projects.find(projectId)
-      const secrets = await this.readSecrets(project)
-      const secret = requireSecret(secrets, id)
-      await this.writeSecrets(project, secrets.filter((saved) => saved.id !== secret.id))
-      await this.entry(project, secret.id).deleteCredential()
+      await this.removeSecret(project, await this.readSecrets(project), id)
     })
+  }
+
+  private async removeSecret(project: Project, secrets: StoredSecret[], id: string): Promise<StoredSecret[]> {
+    const secret = requireSecret(secrets, id)
+    const remaining = secrets.filter((saved) => saved.id !== secret.id)
+    const contents = await readFile(join(this.projectDirectory(project.name), secretsFileName))
+    await this.writeSecrets(project, remaining)
+    try {
+      await this.entry(project, secret.id).deleteCredential()
+    } catch (error) {
+      // Restore encrypted bytes without Keychain access, because Keychain can be locked after the file changes.
+      await this.writeSecretsFile(project, contents)
+      throw new Error('Cannot delete the Keychain key. The secret remains saved. Unlock Keychain and try again.', { cause: error })
+    }
+    return remaining
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -265,12 +278,16 @@ export class Vault {
   }
 
   private async writeSecrets(project: Project, secrets: StoredSecret[]): Promise<void> {
+    const { iv, tag, ciphertext } = seal(await this.fileKey(project), Buffer.from(JSON.stringify(secrets)), fileData(project))
+    await this.writeSecretsFile(project, Buffer.concat([magic, iv, tag, ciphertext]))
+  }
+
+  private async writeSecretsFile(project: Project, contents: Buffer): Promise<void> {
     const directory = this.projectDirectory(project.name)
     const filename = join(directory, secretsFileName)
-    const { iv, tag, ciphertext } = seal(await this.fileKey(project), Buffer.from(JSON.stringify(secrets)), fileData(project))
     try {
       await mkdir(directory, { recursive: true, mode: 0o700 })
-      await writeFile(`${filename}.tmp`, Buffer.concat([magic, iv, tag, ciphertext]), { mode: 0o600 })
+      await writeFile(`${filename}.tmp`, contents, { mode: 0o600 })
       await rename(`${filename}.tmp`, filename)
     } catch (error) {
       throw new Error(`Cannot save the secrets of ${project.name}. Check your local storage permissions.`, { cause: error })

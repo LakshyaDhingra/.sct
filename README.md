@@ -114,6 +114,10 @@ Select **Storage**, then **Change location…**, to move the vault folder to a d
 .sct saves the location in `settings.json` in the `userData` directory. The Keychain keys stay in Keychain.
 Deleting a project removes its vault folder and its Keychain keys. Relay delivery is not implemented yet.
 
+If Keychain rejects a secret deletion, .sct restores the encrypted entry so you can retry.
+A failed project deletion keeps the project and its remaining secret entries for another attempt.
+The local secret workflow implements [#26](https://github.com/omavashia2005/.sct/issues/26) and does not require a relay connection.
+
 ## Project structure
 
 | Path | Purpose |
@@ -152,7 +156,9 @@ Local startup does not import a relay client.
 The UI test blocks HTTP and WebSocket requests before the window opens.
 It checks renderer isolation, folder selection, cancellation, invalid paths, duplicate folders, and persistence after restart.
 It also checks secret save, update, and delete, value clearing, project rename and delete, and a vault move.
+It checks metadata-only renderer responses and Keychain key removal after deletion.
 The vault tests and the UI test use real macOS Keychain. They remove their Keychain items when they pass.
+The vault tests also check deletion retries after a rejected Keychain operation.
 The test supplies folder-picker results automatically. It does not operate the native macOS dialog.
 GitHub Actions runs these checks and React Doctor on macOS.
 
