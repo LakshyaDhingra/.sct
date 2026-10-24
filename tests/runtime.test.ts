@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readFile, readlink, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -54,13 +54,17 @@ function watchOutput(child: ChildProcess) {
   }
 }
 
-test('the CLI installer creates an idempotent link and preserves existing commands', async (t) => {
+test('the CLI installer creates an idempotent launcher and preserves existing commands', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'sct-install-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const target = join(root, 'bin', 'sct')
+  await mkdir(join(root, 'bin'))
+  await symlink(process.execPath, target)
   await installCli(process.execPath, target)
   await installCli(process.execPath, target)
-  assert.equal(await readlink(target), process.execPath)
+  assert.equal((await lstat(target)).isSymbolicLink(), false)
+  assert.equal(await readFile(target, 'utf8'), `#!/bin/sh\n# .sct command launcher\nexec '${process.execPath}' "$@"\n`)
+  assert.equal(execFileSync(target, ['-e', 'process.stdout.write("launched")'], { encoding: 'utf8' }), 'launched')
   await rm(target)
   await writeFile(target, 'existing-command')
   await assert.rejects(installCli(process.execPath, target), /already exists/)

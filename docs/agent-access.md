@@ -17,7 +17,7 @@ bun run install:cli
 The first command builds the desktop app, CLI, MCP server, TypeScript SDK, console demo, and bundled skills.
 It uses the existing `.sct Development` signing identity and `com.omavashia2005.sct` bundle identifier.
 See [signing setup](macos-signing.md) for local prerequisites.
-The second command links the signed executable as `~/.local/bin/sct`.
+The second command installs `~/.local/bin/sct` as a launcher for the signed executable.
 
 Use `bun run build` for an unsigned development build.
 Use `bun run build:demo` to rebuild only `out/demo/index.cjs`.
@@ -78,6 +78,30 @@ All operations also accept an optional ISO 8601 `expiresAt` deadline.
 Unknown fields and arbitrary commands fail request checks.
 Keep vault storage outside source folders. No operation creates an `.env` file or replacement secret file in the project.
 
+## Caller authentication
+
+.sct identifies the calling program before it checks the request.
+It reads the parent processes up to the first process with a listed agent name.
+Then `codesign` checks that running process against the agent's signing requirement.
+
+| Agent | Executable name | Signing requirement |
+|---|---|---|
+| Claude Code | `claude` | Identifier `com.anthropic.claude-code`, Apple Developer ID, Team ID `Q6L2SF6YDW` |
+
+`src/main/caller.ts` contains this list.
+The MCP client is usually the direct parent of `sct mcp`.
+A shell tool usually starts `sct agent`, so the agent is a more distant ancestor.
+
+- A listed agent that passes its check becomes a verified caller. The approval window shows its name.
+- A process with a listed agent name that fails the check is an impostor. .sct rejects each request before local approval.
+  The result has status `failed` and names the failed signature check.
+- A caller with no listed agent among its ancestors is unverified. The approval window labels it as unverified.
+  Approval also requires the user to select **I started this request myself**.
+
+Caller authentication identifies the program. It does not replace local approval.
+A verified agent can still request an operation that the user must refuse.
+Another program that the verified agent starts also passes this check.
+
 ## Local approval
 
 Each request requires explicit approval in the local .sct window.
@@ -115,7 +139,8 @@ Closing stdin ends the MCP process and cancels pending requests.
 The server exposes the operations above as tools.
 It also exposes each workflow as a prompt with the operation name and a Markdown resource at `sct://skills/<operation>`.
 MCP `run_demo` requires a saved `secretId`. MCP does not accept a plaintext credential value.
-Claude Code integration and host approval checks remain separate validation work in #4 and #10.
+See [the Claude Code demo project](../examples/claude-code/README.md) for a configuration that allows only the `sct` server.
+Claude Code permission decisions apply first. Each allowed call still requires the local .sct decision.
 
 ## Skills
 

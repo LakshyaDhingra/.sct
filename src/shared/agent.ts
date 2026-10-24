@@ -64,11 +64,24 @@ export interface AgentOutcome {
 
 export type AgentSubmit = (input: unknown, signal?: AbortSignal) => Promise<AgentOutcome>
 
+export interface AgentCaller {
+  name: string
+  verified: boolean
+}
+
+export interface AgentResponse {
+  id: string
+  approved: boolean
+  comparedCode?: boolean
+  startedByMe?: boolean
+}
+
 export interface AgentRequestView {
   id: string
   operation: AgentOperation
   status: 'pending' | 'running' | AgentOutcome['status']
   expiresAt: string
+  caller: AgentCaller
   project?: Project
   secrets: SecretMetadata[]
   detail: string
@@ -78,6 +91,6 @@ export interface AgentRequestView {
 
 export interface AgentAPI {
   getAgentRequests: () => Promise<AgentRequestView[]>
-  respondToAgent: (input: { id: string; approved: boolean; comparedCode?: boolean }) => Promise<void>
+  respondToAgent: (input: AgentResponse) => Promise<void>
   onAgentChanged: (listener: () => void) => () => void
 }

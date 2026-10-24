@@ -271,7 +271,7 @@ The storage format stays unchanged. Local vault operations need no CLI, MCP serv
 | `electron.vite.config.ts` | Main, preload, and renderer build configuration. |
 | `native/airdrop.swift` | Helper that opens only the AirDrop picker. Electron's share menu cannot limit its services. |
 | `scripts/package-macos.ts` | Local macOS packaging, signing, and signature checks. |
-| `scripts/install-cli.ts` | Install the signed app's `sct` command link. |
+| `scripts/install-cli.ts` | Install the signed app's `sct` command launcher. |
 | `packages/env/` | Dependency-free TypeScript SDK and its package documentation. |
 | `.github/workflows/checks.yml` | macOS checks and React Doctor. |
 | `out/` | Generated application files. Git ignores this directory. |
