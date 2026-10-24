@@ -1,66 +1,105 @@
 # .sct: CalHacks 2026
 
-.sct is a macOS credential and task handoff app built with Electron, React, and TypeScript.
-Each device keeps its vault and private keys locally. Cloud-hosted SpacetimeDB relays encrypted messages between verified devices.
+.sct is a macOS secret management and sharing app built with Electron, React, and TypeScript.
+Each device keeps its vault and private keys locally.
+Cloud-hosted SpacetimeDB will relay encrypted secrets between verified devices.
+The basic local app exists. Phase 2 now adds sharing.
 Unchecked items describe planned behavior.
 
-## MVP flow
+## Development order
 
-1. A local agent submits a secret or task through the .sct CLI.
-2. The Electron app encrypts the payload for a verified, paired recipient device.
-3. SpacetimeDB persists the encrypted message and routes it through authorized subscriptions over TLS.
-4. The recipient decrypts locally and notifies its user. Agent execution requires local approval.
-5. Encrypted delivery acknowledgments and execution results return through the relay to the sender.
+1. **Phase 2.1: SpacetimeDB setup and contracts.** Define the schema, communication, device pairing, and encrypted transfer format.
+2. **Phase 2.2: Sharing UI, delivery, and security checks.** Build app controls with delivery so users can test sharing directly.
+3. **Phase 3: Agent Access.** Add CLI, MCP, approval, execution, and result return only after secure sharing passes.
 
-## MVP feature checklist
+Phase 2 requires no CLI, MCP server, installed agent, task execution, or agent approval.
+Issue [#20](https://github.com/omavashia2005/.sct/issues/20) is the acceptance checkpoint before any Agent Access issue starts.
+GitHub title prefixes define the order. Issue IDs stay unchanged.
+See the complete [issue order and prerequisites](docs/architecture.md#implementation-order).
 
-- [ ] Desktop app: Electron, React, and TypeScript ([#24](https://github.com/omavashia2005/.sct/issues/24), [#13](https://github.com/omavashia2005/.sct/issues/13)).
-- [ ] Local vault: Keychain-backed secret storage and local private keys ([#6](https://github.com/omavashia2005/.sct/issues/6), [#26](https://github.com/omavashia2005/.sct/issues/26)).
-- [ ] Project scope: One demo project and the `dev` environment ([#7](https://github.com/omavashia2005/.sct/issues/7)).
-- [ ] Secret management: Create, list, and delete local secrets ([#25](https://github.com/omavashia2005/.sct/issues/25), [#26](https://github.com/omavashia2005/.sct/issues/26), [#6](https://github.com/omavashia2005/.sct/issues/6)).
-- [ ] CLI submission: Accept a secret or task from a local agent ([#5](https://github.com/omavashia2005/.sct/issues/5), [#7](https://github.com/omavashia2005/.sct/issues/7)).
-- [ ] Verified pairing: Confirm device keys before sharing ([#15](https://github.com/omavashia2005/.sct/issues/15)).
-- [ ] Encrypted relay: Persist and route handoffs through cloud-hosted SpacetimeDB ([#3](https://github.com/omavashia2005/.sct/issues/3), [#11](https://github.com/omavashia2005/.sct/issues/11), [#16](https://github.com/omavashia2005/.sct/issues/16), [#17](https://github.com/omavashia2005/.sct/issues/17)).
-- [ ] Recipient execution: Notify the user and launch an approved agent task ([#8](https://github.com/omavashia2005/.sct/issues/8), [#17](https://github.com/omavashia2005/.sct/issues/17), [#18](https://github.com/omavashia2005/.sct/issues/18)).
-- [ ] Delivery status: Return acknowledgments and execution results ([#11](https://github.com/omavashia2005/.sct/issues/11), [#14](https://github.com/omavashia2005/.sct/issues/14), [#17](https://github.com/omavashia2005/.sct/issues/17)).
-- [ ] Reliable delivery: Handle offline recipients, retries, expiry, and duplicate execution ([#16](https://github.com/omavashia2005/.sct/issues/16), [#17](https://github.com/omavashia2005/.sct/issues/17), [#19](https://github.com/omavashia2005/.sct/issues/19)).
-- [ ] Access control: Enforce injection-only grants and local approval ([#18](https://github.com/omavashia2005/.sct/issues/18)).
-- [ ] Local expiry: Block expired grants and remove their local secret material ([#19](https://github.com/omavashia2005/.sct/issues/19)).
-- [ ] Activity ledger: Show recipients, deadlines, delivery status, and execution outcomes ([#11](https://github.com/omavashia2005/.sct/issues/11), [#14](https://github.com/omavashia2005/.sct/issues/14)).
-- [ ] Claude integration: Expose the narrow MCP interface ([#4](https://github.com/omavashia2005/.sct/issues/4), [#9](https://github.com/omavashia2005/.sct/issues/9), [#10](https://github.com/omavashia2005/.sct/issues/10)).
-- [ ] Offline local access: Keep the vault usable during relay outages ([#12](https://github.com/omavashia2005/.sct/issues/12), [#20](https://github.com/omavashia2005/.sct/issues/20)).
+## Phase 2 sharing flow
 
-Deferred from the MVP:
+1. Both users verify their device keys through pairing in the app.
+2. The sender selects a local secret, a verified recipient, and deadlines in the sharing UI.
+3. The sender app encrypts and signs the transfer in its Electron main process.
+4. SpacetimeDB persists ciphertext and routes it through authorized subscriptions over TLS.
+5. The recipient checks the transfer and protects the received secret in its local vault.
+6. An encrypted acknowledgment returns through the relay, and both apps show delivery status.
 
-- [ ] AirDrop sharing ([#22](https://github.com/omavashia2005/.sct/issues/22)).
-- [ ] Factory integration ([#23](https://github.com/omavashia2005/.sct/issues/23)).
+Receipt confirms delivery.
+Agent execution and results belong to Phase 3.
+
+## Feature checklist
+
+The local app already provides project management, local secret operations, encrypted files, Keychain keys, and configurable vault storage.
+Issues #24, #1, #25, #26, and #2 are closed.
+Issue [#6](https://github.com/omavashia2005/.sct/issues/6) remains an open check of the vault operations before sharing.
+
+Phase 2.1:
+
+- [ ] Hosted relay setup ([2.1.1, #3](https://github.com/omavashia2005/.sct/issues/3)).
+- [ ] Authorized schema and communication contract ([2.1.2, #11](https://github.com/omavashia2005/.sct/issues/11)).
+- [ ] Electron relay connection and durable queue ([2.1.3, #12](https://github.com/omavashia2005/.sct/issues/12)).
+- [ ] Verified device pairing ([2.1.4, #15](https://github.com/omavashia2005/.sct/issues/15)).
+- [ ] Encrypted transfer and acknowledgment format ([2.1.5, #16](https://github.com/omavashia2005/.sct/issues/16)).
+- [ ] Secure sharing IPC ([2.1.6, #13](https://github.com/omavashia2005/.sct/issues/13)).
+
+Phase 2.2:
+
+- [ ] Sharing controls and delivery activity ([2.2.1, #14](https://github.com/omavashia2005/.sct/issues/14)).
+- [ ] Actual delivery and acknowledgments from both app windows ([2.2.2, #17](https://github.com/omavashia2005/.sct/issues/17)).
+- [ ] Retry deadlines, grant expiry, and local cleanup ([2.2.3, #19](https://github.com/omavashia2005/.sct/issues/19)).
+- [ ] Two-device security and offline checks ([2.2.4, #20](https://github.com/omavashia2005/.sct/issues/20)).
+
+Phase 3, after #20 passes:
+
+- [ ] CLI, MCP entrypoint, and demo build commands ([3.1, #5](https://github.com/omavashia2005/.sct/issues/5)).
+- [ ] Local agent request API and CLI transport ([3.2, #7](https://github.com/omavashia2005/.sct/issues/7)).
+- [ ] Claude Code MCP approval check ([3.3, #4](https://github.com/omavashia2005/.sct/issues/4)).
+- [ ] Local grant access and agent approval ([3.4, #18](https://github.com/omavashia2005/.sct/issues/18)).
+- [ ] Approved execution, activity states, and encrypted results ([3.5, #8](https://github.com/omavashia2005/.sct/issues/8)).
+- [ ] Narrow MCP tools ([3.6, #9](https://github.com/omavashia2005/.sct/issues/9)).
+- [ ] Claude integration and Agent Access checks ([3.7, #10](https://github.com/omavashia2005/.sct/issues/10)).
+
+Post-MVP:
+
+- [ ] AirDrop sharing ([4.1, #22](https://github.com/omavashia2005/.sct/issues/22)).
+- [ ] Factory integration ([4.2, #23](https://github.com/omavashia2005/.sct/issues/23)).
 - [ ] Access renewal.
 - [ ] Manual rotation.
 - [ ] Fetch.ai integration.
 - [ ] Provider import and export.
 
-Core stack: Electron + React + TypeScript + macOS Keychain + cloud-hosted SpacetimeDB + MCP.
+Core stack: Electron, React, TypeScript, macOS Keychain, and cloud-hosted SpacetimeDB.
+Phase 3 adds CLI and MCP access.
 
 ## Storage and security
 
-The Electron main process owns vault access, encryption, relay connections, and process launch.
-The React renderer uses a narrow preload bridge. It clears entered secret values after submission and never receives stored values.
-.sct has no separate application daemon.
+The Electron main process owns vault access, encryption, relay connections, and local cleanup.
+Phase 3 adds approved process launch.
+The React renderer uses a narrow preload bridge.
+It clears entered values after submission and never receives stored values.
 
-The relay stores ciphertext and minimal routing metadata.
-Plaintext secrets, tasks, execution output, and private keys stay off the relay.
-TLS protects connections. Server-side authorization restricts reads, subscriptions, and writes to authenticated message participants.
-Users verify device keys during pairing. A relay identity alone does not establish trust in a device key.
+The planned relay stores ciphertext and minimal routing metadata.
+Plaintext secrets and private keys stay outside relay rows and logs.
+TLS protects connections.
+Server-side authorization restricts reads, subscriptions, and writes to authenticated message participants.
+Users verify device keys during pairing.
+A relay identity alone does not establish trust in a device key.
 
-Persisted messages support offline delivery until their delivery deadline. Retries reuse the same message ID.
-Durable execution records prevent duplicate deliveries from automatically launching a task again.
-An uncertain outcome after a crash requires local review.
+Persisted ciphertext supports offline delivery until its deadline.
+Retries reuse the same message ID.
+Durable receipt records prevent duplicate secret imports.
+Phase 3 adds durable execution records and local review for uncertain crash outcomes.
 
-Local vault access remains available offline. Cross-device delivery, acknowledgments, and results require the relay.
-The UI shows cached status and queued work during outages.
-Message expiry prevents later delivery or execution of that message. It does not revoke credentials already delivered.
-Grant expiry separately blocks future local use and removes local grant material when cleanup runs.
-Copied credentials and running processes can retain secret values.
+Local vault access remains available offline.
+Cross-device delivery and acknowledgments require the relay.
+The UI identifies cached status and queued work during outages.
+Message expiry blocks later delivery and import.
+It does not revoke credentials already delivered.
+Grant expiry separately blocks new local access and removes local grant material when cleanup runs.
+External copies can retain credentials.
+Phase 3 processes can retain injected values after grant expiry.
 
 See [architecture and implementation order](docs/architecture.md) and the [technical glossary](docs/glossary.md).
 
@@ -169,7 +208,9 @@ These checks apply to implementation:
 - Run [React Doctor](https://www.react.doctor) in GitHub Actions.
 - Run `bun run check` and `bun run typecheck:tsc` before merging.
 - Check that the React frontend and Electron application compile.
-- Add automated UI tests after the foundation screens work. Ask Claude to independently run UI tests before merging or the final push.
-- Test encryption, storage, relay authorization, retries, expiry, duplicate execution, and offline behavior in CI.
+- Run existing Playwright UI checks and React Doctor after each UI change.
+- Obtain approval before adding new tests, as required by AGENTS.md.
+- Check encryption, storage, relay authorization, retries, expiry, duplicate imports, and offline behavior during Phase 2.
+- Check agent approval, duplicate execution, crash recovery, and result return during Phase 3 after #20 passes.
 - Document architecture, conventions, test commands, and agent instructions in AGENTS.md.
 
