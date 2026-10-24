@@ -3,6 +3,7 @@ import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
 import { execFile } from 'node:child_process'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { rmSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { ProjectStore } from './projects'
@@ -31,15 +32,27 @@ app.on('open-file', (event, path) => {
 
 function handle(channel: string, operation: (...args: unknown[]) => unknown): void {
   ipcMain.handle(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]): Promise<Reply<unknown>> => {
-    if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) {
-      return { ok: false, error: '.sct rejected this request.' }
-    }
+    if (!isAppRequest(event)) return { ok: false, error: '.sct rejected this request.' }
     try {
       return { ok: true, value: await operation(...args) }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'The operation failed.' }
     }
   })
+}
+
+// Requests come only from the app page in the top frame of the main window. The page check stays if a navigation is not blocked.
+function isAppRequest(event: IpcMainInvokeEvent): boolean {
+  const frame = event.senderFrame
+  if (event.sender !== mainWindow?.webContents || !frame || frame !== event.sender.mainFrame || !URL.canParse(frame.url)) return false
+  const page = new URL(frame.url)
+  return !app.isPackaged && process.env.ELECTRON_RENDERER_URL
+    ? page.origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
+    : page.protocol === 'file:' && page.pathname === pathToFileURL(rendererPage()).pathname
+}
+
+function rendererPage(): string {
+  return join(__dirname, '../renderer/index.html')
 }
 
 async function createWindow(hash = incomingFiles.length ? '/sharing' : undefined): Promise<void> {
@@ -73,7 +86,7 @@ async function createWindow(hash = incomingFiles.length ? '/sharing' : undefined
     if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
       await window.loadURL(`${process.env.ELECTRON_RENDERER_URL}${hash ? `#${hash}` : ''}`)
     } else {
-      await window.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+      await window.loadFile(rendererPage(), { hash })
     }
   } catch (error) {
     // Closing a window during its first load cancels loading without a startup failure.
