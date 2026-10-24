@@ -163,3 +163,28 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 @media (prefers-reduced-motion: reduce) {
   .sharing-activity span { transform: none; opacity: 1; }
 }
+
+.sharing-setup { margin: 24px 0 0; padding-left: 24px; }
+.sharing-setup li { padding: 8px 0 24px 12px; }
+.sharing-setup li + li { border-top: 1px solid var(--color-rule); padding-top: 24px; }
+.sharing-setup h3 { margin-bottom: 8px; }
+.sharing-setup p { color: var(--color-ink-2); font-size: 15px; margin: 0 0 16px; }
+.sharing-details { margin-top: 20px; color: var(--color-ink-2); font-size: 15px; }
+.sharing-details summary { min-height: 44px; padding-block: 8px; cursor: pointer; }
+.sharing-details summary:hover { color: var(--color-ink); }
+.sharing-details summary:focus-visible, .pairing-review h3:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; }
+.sharing-details p { margin: 8px 0 0; }
+.sharing-details .sharing-peers { margin-top: 0; }
+.sharing-tabs { display: flex; border-bottom: 1px solid var(--color-rule-2); }
+.sharing-tabs a, .sharing-tabs > span { display: block; min-height: 44px; border: 1px solid var(--color-rule-2); border-bottom: 0; padding: 8px 20px; font-size: 15px; text-decoration: none; }
+.sharing-tabs a + a, .sharing-tabs a + span { border-left: 0; }
+.sharing-tabs a { color: var(--color-ink-2); background: var(--color-paper-2); }
+.sharing-tabs a:hover { color: var(--color-ink); background: var(--color-paper-3); }
+.sharing-tabs a[aria-current="page"] { color: var(--color-accent); border-top-color: var(--color-accent); background: var(--color-paper); }
+.sharing-tabs > span { color: var(--color-muted); }
+.sharing-tabs { margin-bottom: 28px; }
+.sharing-tab-help { margin: -12px 0 28px; }
+.sharing-verified { margin-bottom: 28px; }
+.sharing-verified .sharing-details { margin-top: 0; }
+.sharing-verified .group-heading { align-items: center; flex-wrap: wrap; }
+.sharing-verified h2 { margin: 0; }

@@ -7,9 +7,9 @@ import { ProjectSecretsView } from './ProjectSecretsView'
 import { ProjectsView } from './ProjectsView'
 import { StorageView } from './StorageView'
 import { SharingView } from './SharingView'
-import type { Loaded, UpdateProjects, UpdateSecrets } from './types'
+import type { Loaded, SharingTab, UpdateProjects, UpdateSecrets } from './types'
 
-type Route = { view: 'projects' } | { view: 'project'; id: string } | { view: 'secrets' } | { view: 'storage' } | { view: 'sharing'; projectId?: string }
+type Route = { view: 'projects' } | { view: 'project'; id: string } | { view: 'secrets' } | { view: 'storage' } | { view: 'sharing'; projectId?: string; tab?: SharingTab }
 
 export function App() {
   const route = parseRoute(useSyncExternalStore(subscribeToHash, () => window.location.hash))
@@ -65,7 +65,7 @@ export function App() {
         {route.view === 'storage' && <StorageView />}
         {route.view === 'sharing' && (
           <SharingView key={route.projectId ?? 'sharing'} projectId={route.projectId}
-            projects={projects} secrets={secrets} updateSecrets={updateSecrets} />
+            tab={route.tab} projects={projects} secrets={secrets} updateSecrets={updateSecrets} />
         )}
       </main>
     </div>
@@ -78,10 +78,13 @@ function subscribeToHash(onChange: () => void): () => void {
 }
 
 function parseRoute(hash: string): Route {
-  const [view, id] = hash.replace(/^#\/?/, '').split('/')
+  const [view, id, projectId] = hash.replace(/^#\/?/, '').split('/')
   if (view === 'projects' && id) return { view: 'project', id: decodeURIComponent(id) }
   if (view === 'secrets') return { view: 'secrets' }
   if (view === 'storage') return { view: 'storage' }
-  if (view === 'sharing') return { view: 'sharing', projectId: id ? decodeURIComponent(id) : undefined }
+  if (view === 'sharing') {
+    if (id === 'devices' || id === 'secrets') return { view: 'sharing', tab: id, projectId: projectId ? decodeURIComponent(projectId) : undefined }
+    return { view: 'sharing', projectId: id ? decodeURIComponent(id) : undefined }
+  }
   return { view: 'projects' }
 }
