@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { constants } from 'node:os'
 import type { ProjectStore } from './projects'
@@ -76,8 +76,20 @@ function signalCommand(child: ChildProcess, signal: NodeJS.Signals): void {
   try {
     process.kill(-child.pid, signal)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return
+    // macOS returns EPERM for a group with only zombies. Live processes must still produce an error.
+    if (process.platform === 'darwin' && (error as NodeJS.ErrnoException).code === 'EPERM' && commandGroupExited(child.pid)) return
+    throw error
   }
+}
+
+function commandGroupExited(pid: number): boolean {
+  const result = spawnSync('/bin/ps', ['-axo', 'pgid=,stat='], { encoding: 'utf8' })
+  if (result.status !== 0) return false
+  return result.stdout.split('\n').every((line) => {
+    const [group, state] = line.trim().split(/\s+/)
+    return group !== String(pid) || state?.startsWith('Z') === true
+  })
 }
 
 async function stopCommand(child: ChildProcess): Promise<void> {

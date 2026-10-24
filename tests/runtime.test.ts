@@ -40,12 +40,14 @@ async function fixture(t: TestContext) {
 
 function watchOutput(child: ChildProcess) {
   let output = ''
+  let closed = false
   child.stdout?.on('data', (data: Buffer) => { output += data.toString() })
   child.stderr?.on('data', (data: Buffer) => { output += data.toString() })
+  child.once('close', () => { closed = true })
   return async (text: string) => {
     const deadline = Date.now() + 8000
     while (!output.includes(text)) {
-      if (Date.now() >= deadline) assert.fail(`Missing fixture result ${text}. Output: ${output}`)
+      if (closed || Date.now() >= deadline) assert.fail(`Missing fixture result ${text}. Output: ${output}`)
       await new Promise((resolve) => setTimeout(resolve, 25))
     }
     return output
@@ -93,23 +95,28 @@ test('CLI selection follows cwd and saved changes restart the whole command grou
   assert.ok(worker)
   await vault.updateSecret({ ...secret, value: 'second-fixture' })
   await waitFor('second-ready')
-  const deadline = Date.now() + 2000
-  for (;;) {
-    try { process.kill(worker, 0) } catch (error) {
-      assert.equal((error as NodeJS.ErrnoException).code, 'ESRCH')
-      break
-    }
-    assert.ok(Date.now() < deadline, 'The previous command worker must exit before another command runs.')
-    await new Promise((resolve) => setTimeout(resolve, 25))
-  }
+  await waitForWorkerExit(worker)
   await vault.renameProject({ id: project.id, name: 'Renamed' })
   await mkdir(join(root, 'moved'))
   await vault.moveTo(join(root, 'moved'))
   await vault.deleteSecret(secret)
-  await waitFor('deleted-ready')
+  const output = await waitFor('deleted-ready')
   child.kill('SIGTERM')
   assert.equal(await exited, 143)
+  await Promise.all([...output.matchAll(/worker:(\d+)/g)].map((match) => waitForWorkerExit(Number(match[1]))))
 })
+
+async function waitForWorkerExit(pid: number): Promise<void> {
+  const deadline = Date.now() + 2000
+  for (;;) {
+    try { process.kill(pid, 0) } catch (error) {
+      assert.equal((error as NodeJS.ErrnoException).code, 'ESRCH')
+      return
+    }
+    assert.ok(Date.now() < deadline, 'The command worker must exit after its command stops.')
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
 
 test('the SDK loads and refreshes values through the real vault without holding a finished app open', { timeout: 20_000 }, async (t) => {
   const { root, vault, project } = await fixture(t)
