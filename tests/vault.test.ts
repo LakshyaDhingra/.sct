@@ -81,6 +81,68 @@ test('invalid secrets and duplicate names do not change the vault', async (t) =>
   assert.deepEqual(await vault.listSecrets(), [secret])
 })
 
+test('a failed Keychain deletion keeps the secret available for another attempt', async (t) => {
+  const { root, open, keychainKey, folder } = await setup(t)
+  const vault = await open()
+  const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
+  const secret = await vault.addSecret({ projectId: project.id, name: 'TOKEN', value: 'value' })
+  assert.ok(await keychainKey(`${project.id}/${secret.id}`))
+  const filename = join(root, '.sct', project.name, 'secrets.sct')
+  const contents = await readFile(filename)
+  const originalRead = AsyncEntry.prototype.getSecret
+  let locked = false
+  const read = t.mock.method(AsyncEntry.prototype, 'getSecret', function (this: AsyncEntry) {
+    return locked ? Promise.reject(new Error('Keychain is locked.')) : originalRead.call(this)
+  })
+  // Simulate a locked Keychain without locking the user's login Keychain.
+  const deletion = t.mock.method(AsyncEntry.prototype, 'deleteCredential', async () => {
+    locked = true
+    throw new Error('Keychain deletion denied.')
+  })
+  try {
+    await assert.rejects(vault.deleteSecret({ projectId: project.id, id: secret.id }), /The secret remains saved/)
+  } finally {
+    deletion.mock.restore()
+    read.mock.restore()
+  }
+
+  assert.deepEqual(await readFile(filename), contents)
+  assert.deepEqual(await (await open()).listSecrets(), [secret])
+  assert.ok(await keychainKey(`${project.id}/${secret.id}`))
+  await vault.updateSecret({ projectId: project.id, id: secret.id, value: 'replacement' })
+  await vault.deleteSecret({ projectId: project.id, id: secret.id })
+  assert.deepEqual(await vault.listSecrets(), [])
+  assert.equal(await keychainKey(`${project.id}/${secret.id}`), null)
+})
+
+test('project deletion can retry the remaining Keychain items after a failure', async (t) => {
+  const { open, keychainKey, folder } = await setup(t)
+  const vault = await open()
+  const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
+  const first = await vault.addSecret({ projectId: project.id, name: 'FIRST', value: 'one' })
+  const second = await vault.addSecret({ projectId: project.id, name: 'SECOND', value: 'two' })
+  assert.ok(await keychainKey(`${project.id}/${first.id}`))
+  assert.ok(await keychainKey(`${project.id}/${second.id}`))
+  const original = AsyncEntry.prototype.deleteCredential
+  let attempts = 0
+  const deletion = t.mock.method(AsyncEntry.prototype, 'deleteCredential', function (this: AsyncEntry) {
+    if (++attempts === 2) return Promise.reject(new Error('Keychain deletion denied.'))
+    return original.call(this)
+  })
+  try {
+    await assert.rejects(vault.deleteProject(project.id), /Keychain/)
+  } finally {
+    deletion.mock.restore()
+  }
+
+  assert.deepEqual(await (await open()).listSecrets(), [second])
+  assert.equal(await keychainKey(`${project.id}/${first.id}`), null)
+  assert.ok(await keychainKey(`${project.id}/${second.id}`))
+  await vault.deleteProject(project.id)
+  assert.equal(await keychainKey(`${project.id}/${second.id}`), null)
+  assert.equal(await keychainKey(`${project.id}/file`), null)
+})
+
 test('project names cannot leave the vault folder or repeat', async (t) => {
   const { root, open, folder } = await setup(t)
   const vault = await open()

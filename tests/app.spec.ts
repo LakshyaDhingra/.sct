@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AsyncEntry } from '@napi-rs/keyring'
 
 test('adds existing folders offline and restores projects after restart', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'sct-ui-')))
@@ -91,6 +92,7 @@ test('manages secrets per project without rendering stored values', async () => 
   const launch = () => electron.launch({ args: [join(__dirname, 'electron-entry.cjs'), userData] })
   let application = await launch()
   const messages: string[] = []
+  const accounts: string[] = []
   const watch = (page: Page) => {
     page.on('pageerror', (error) => messages.push(`error: ${error.message}`))
     page.on('console', (message) => messages.push(`${message.type()}: ${message.text()}`))
@@ -116,6 +118,12 @@ test('manages secrets per project without rendering stored values', async () => 
     await expect(page.getByLabel('Value', { exact: true })).toHaveValue('')
     await expect(page.getByLabel('Name')).toHaveValue('')
     await expect(page.getByRole('list', { name: 'Secrets in Demo' })).toContainText('OPENAI_API_KEY')
+    const metadata = await page.evaluate(() => window.sct.listSecrets())
+    expect(metadata).toHaveLength(1)
+    expect(Object.keys(metadata[0]).sort()).toEqual(['id', 'name', 'projectId'])
+    expect(metadata[0].name).toBe('OPENAI_API_KEY')
+    accounts.push(`${metadata[0].projectId}/${metadata[0].id}`, `${metadata[0].projectId}/file`)
+    expect(await new AsyncEntry('.sct', accounts[0]).getSecret()).not.toBeNull()
     await page.screenshot({ path: test.info().outputPath('project-secrets.png') })
 
     await page.getByLabel('Name').fill('OPENAI_API_KEY')
@@ -169,6 +177,8 @@ test('manages secrets per project without rendering stored values', async () => 
     await page.getByRole('button', { name: 'Delete', exact: true }).click()
     await page.getByRole('button', { name: 'Delete secret' }).click()
     await expect(page.getByRole('heading', { name: 'No secrets in Renamed' })).toBeVisible()
+    expect(await new AsyncEntry('.sct', accounts[0]).getSecret()).toBeNull()
+    expect(await page.evaluate(() => window.sct.listSecrets())).toEqual([])
 
     await page.getByRole('link', { name: 'Projects', exact: true }).click()
     await page.getByRole('button', { name: 'Delete', exact: true }).click()
@@ -177,9 +187,11 @@ test('manages secrets per project without rendering stored values', async () => 
     await page.getByRole('button', { name: 'Delete project' }).click()
     await expect(page.getByRole('heading', { name: 'Your projects start here' })).toBeVisible()
     expect(await readdir(join(root, 'moved', '.sct'))).toEqual([])
+    expect(await new AsyncEntry('.sct', accounts[1]).getSecret()).toBeNull()
     expect(messages.filter((message) => message.startsWith('error') || message.includes(value))).toEqual([])
   } finally {
     await application.close()
+    for (const account of accounts) await new AsyncEntry('.sct', account).deleteCredential()
     await rm(root, { recursive: true, force: true })
   }
 })
