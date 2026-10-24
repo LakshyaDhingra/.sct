@@ -17,6 +17,7 @@
     "typecheck": "bun check --no-script -p tsconfig.node.json && bun check --no-script -p tsconfig.web.json",
     "typecheck:tsc": "bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.node.json && bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.web.json",
     "build": "bun run typecheck:tsc && electron-vite build",
+    "package:mac": "bun run build && bun scripts/package-macos.ts",
     "lint": "eslint . --max-warnings 0",
     "test": "cd tests && bun test projects.test.ts",
     "test:ui": "bun run build && cd tests && playwright test --config ../playwright.config.ts"
@@ -26,6 +27,7 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "@eslint/js": "^10.0.0",
     "@fontsource-variable/martian-mono": "^5.3.0",
     "@playwright/test": "^1.64.1",
