@@ -1,40 +1,40 @@
 # .sct architecture and implementation order
 
-## Architecture
-
-The local app foundation exists.
-Issue #32 adds runtime injection without .env or replacement files in the project folder before relay setup.
-The relay and local Agent Access branches then proceed independently.
-Only integration issue #33 requires both branches.
-See [runtime injection](runtime-injection.md) for project resolution and loader compatibility.
-
-.sct uses Electron, React, and TypeScript. The Electron main process owns sensitive operations on each device.
-Cloud-hosted SpacetimeDB persists encrypted handoffs and exposes authorized subscriptions.
-Devices retain local vaults, cached activity, pending messages, and durable execution records.
-Separate local SpacetimeDB servers are no longer required.
+.sct uses Electron, React, and TypeScript. The Electron main process owns every sensitive operation on a Mac:
+vault access, Keychain, encryption, the start of child processes, sharing, relay connections, and Agent Access.
+The sandboxed renderer calls a narrow preload bridge and receives metadata only.
+Each Mac keeps its own vault, private keys, cached activity, and pending messages. No local server or separate daemon runs.
 
 ## Local runtime injection
 
-The project registry maps a project to its source folder.
-The configured external vault root resolves .sct/[project-name]/secrets.sct.
-Issue #32 decrypts locally and supplies the child environment before the project command starts.
-The project folder needs no .env, replacement secret file, .sct manifest, symlink, or FIFO.
-Local launches work offline and do not depend on agent or relay issues.
-The launched program and its descendants can read or copy their environment.
-The CLI selects projects from the current folder and restarts the command when saved keys change.
-The dependency-free TypeScript SDK loads values through a signed helper's private process pipes.
-It updates the calling application's `process.env` without restarting that application.
-Library clients that retain keys require recreation through the SDK's `onChange` callback.
-Both paths check encrypted file revisions locally and resolve registry and storage changes before reading values.
-Neither path adds a local server, relay dependency, or project-local secret file.
+The project registry maps a project to its source folder. The vault root resolves `.sct/[project-name]/secrets.sct`.
+`sct run` decrypts locally and supplies the child environment before the command starts.
+The `@sct/env` SDK receives values through a signed helper's private pipes and updates `process.env`.
+The project folder needs no `.env` file, replacement secret file, manifest, symlink, or FIFO. Both paths work offline.
+See [runtime injection](runtime-injection.md).
 
-## Phase 2 architecture
+## Agent Access
 
-The Electron main process owns vault access, device keys, encryption, relay connections, and local grant cleanup.
-The renderer uses a narrow preload bridge and receives metadata only.
-Devices retain local vaults, cached activity, pending ciphertext, and durable delivery records.
-SpacetimeDB stores ciphertext and minimal routing metadata.
-Neither device requires a local SpacetimeDB server or a separate application daemon.
+`sct agent` (CLI) and `sct mcp` (stdio MCP server) run inside the signed executable and share one request path:
+
+1. Identify the caller. .sct finds the first listed agent among the parent processes and checks its code signature.
+   An impostor fails before any other check. An unverified caller needs an extra confirmation in the approval window.
+2. Check the request against a strict schema. Unknown fields and arbitrary commands fail.
+3. Show the local approval window. Each approval applies to one request and one deadline.
+4. Run the operation. Return metadata or a fixed outcome. Results contain no secret value and no process log.
+
+Local operations open no relay connection. `relay_status` connects only when an approved request asks for it.
+See [Agent Access](agent-access.md).
+
+## AirDrop sharing
+
+The working sharing flow encrypts selected secrets for one verified device and sends the file through AirDrop.
+See [sharing](sharing.md). Relay sharing below is the next transport.
+
+## Relay sharing (Phase 2)
+
+Cloud-hosted SpacetimeDB stores ciphertext and minimal routing metadata. See [relay setup](relay.md).
+Devices keep pending ciphertext, cached activity, and durable delivery records.
 
 The admin is the user who publishes a secret. Any user can be the admin of a secret that they publish.
 An admin can send one secret to one or more paired recipients. The demo shows one recipient.
@@ -45,7 +45,7 @@ SpacetimeDB keeps a separate delivery status for each recipient.
 ```mermaid
 flowchart LR
   subgraph A[Sender device]
-    SU[Sharing UI] <-->|validated preload IPC| SM[Electron main process]
+    SU[Sharing UI] <-->|checked preload IPC| SM[Electron main process]
     SM <--> SK[(Local vault and Keychain)]
     SM <--> SQ[(Pending ciphertext and activity)]
   end
@@ -87,37 +87,16 @@ sequenceDiagram
   R->>RUser: Notify user and show received metadata
   R->>DB: Publish encrypted correlated acknowledgment
   DB-->>S: Deliver acknowledgment when sender connects
-  S->>SUser: Show confirmed receipt for each recipient
+  S->>SUser: Show the receipt for each recipient
   Note over S,R: Retries reuse IDs and cannot repeat secret import
 ```
 
-Receipt confirms durable delivery. It does not confirm execution.
-No step launches a process or requires an agent.
+A receipt shows durable delivery. It does not show execution.
+No step starts a process or needs an agent.
 
-## Standalone Agent Access
+## Relay keys and authorization
 
-Reuse #32 for local project resolution and environment injection.
-See [local agent entrypoints and demo](agent-access.md) for build commands and the current entrypoint scope.
-Issues #5, #7, #4, #18, #8, #9, and #10 add local requests, approval, execution, and MCP.
-Their contracts contain no relay identities, paired recipients, or wire envelopes.
-Issue #18 enforces local project access before #8 launches the fixed approved task.
-Issue #33 later maps remote tasks and received grants onto this local path.
-Claude Code's own model service can require internet access independently of the relay.
-
-Issue #8 provides local approval and execution states where needed.
-Issue #9 exposes project_setup, list_secrets, describe_secret, delete_secret, send_secrets_to, and run_demo.
-Pairing and sharing use the existing encrypted AirDrop workflow. relay_status exposes the connection and cached metadata from #12.
-Local operations initialize no relay connection. Each agent operation requires a separate local approval.
-Issue #10 checks local Claude integration, refusal, deadlines, and reused approvals.
-Keep plaintext values outside command arguments, logs, renderer responses, and MCP results.
-
-## Storage and authorization
-
-The local vault keeps encrypted project files and protects their keys in macOS Keychain.
-Device private keys and relay client tokens stay under local Keychain protection.
-The renderer never receives stored secret values, private keys, or relay tokens.
-It clears entered values after submission.
-Relay deployment credentials stay outside Git and desktop builds.
+Device private keys and relay client tokens stay in macOS Keychain. Relay deployment credentials stay outside Git and desktop builds.
 
 The TypeScript relay module defines authenticated devices, verified pairs, encrypted envelopes, grants, and delivery status.
 Issue #11 defines the schema and communication contract.
@@ -128,13 +107,13 @@ Each envelope carries an ID, sender, kind, correlation ID, delivery deadline, no
 It also carries one wrapped message key for each recipient.
 Keep secrets, grant contents, and descriptive secret names inside ciphertext.
 Authenticate routing fields with the ciphertext.
-The planned device keys use X25519 for encryption and Ed25519 for signatures.
+Device keys use X25519 for encryption and Ed25519 for signatures.
 
 Use TLS for every relay connection.
 Bind each device to an authenticated relay identity.
 Both users verify device keys before sharing.
 A relay identity alone does not establish trust in a public key.
-Require new verification after a peer key changes.
+If a peer key changes, require a new verification.
 
 Check that the claimed sender matches the authenticated caller.
 Authorize pair registration, publication, reads, subscriptions, and status changes.
@@ -163,7 +142,7 @@ All tables are private. Clients read data only through the views.
 | `requestPair(peer)` | Creates a `Pending` pair from the caller to the peer. It rejects the request if either device has no `device` row, the peer is the caller, or the two devices already have a pair. |
 | `confirmPair(pairId)` | Sets the pair to `Verified`. Only the peer of the pair can call it. |
 | `removePair(pairId)` | Deletes the pair. Either device of the pair can call it, for example after the pairing codes differ. The devices can then pair again. |
-| `publishSecret(id, payload, recipients)` | Each recipient entry contains a `recipient` identity and a `wrappedKey`. The reducer rejects the request if the caller has no `device` row, the list is empty, a recipient occurs more than one time, a recipient has no `Verified` pair with the caller, or the ID is already used. It saves the `message` row and one `Pending` `delivery` row for each recipient in one transaction. |
+| `publishSecret(id, payload, recipients)` | Each recipient entry contains a `recipient` identity and a `wrappedKey`. The reducer rejects the request in these cases: the caller has no `device` row, or the list is empty. Also: a recipient occurs more than one time, a recipient has no `Verified` pair with the caller, or the ID is already used. It saves the `message` row and one `Pending` `delivery` row for each recipient in one transaction. |
 | `acknowledge(messageId)` | Sets `Received` and `receivedAt` on the `delivery` row of the caller for that message. It rejects the request if the caller has no `delivery` row for the message. A second call changes nothing. |
 
 | View | Rows |
@@ -178,7 +157,7 @@ The recipient app protects the secret locally before it calls `acknowledge`.
 A third identity sees no rows of another pair.
 
 Issue #11 defines the `pair` table and the pair reducers.
-Both users compare the pairing code in the app before they confirm. See [relay pairing](relay.md#pairing).
+Both users compare the pairing code in the app before they accept the pair. See [relay pairing](relay.md#pairing).
 This first version does not contain signatures, deadlines, or retries. Issues #16, #19, and #17 add them.
 A reused message ID always fails. Issue #17 adds retries that reuse the original ID.
 Until #19 adds deadlines, messages and delivery rows stay on the relay.
@@ -187,23 +166,19 @@ The first version records receipt with the `acknowledge` reducer. Issue #16 adds
 ## Phase 2 delivery and expiry rules
 
 1. Persist outbound ciphertext locally before publication.
-2. Persist accepted ciphertext on the relay before confirming publication.
+2. Persist accepted ciphertext on the relay before the relay reports a successful publication.
 3. Restore authorized subscriptions and pending delivery after reconnect.
 4. Retry with bounded backoff and the original message ID.
 5. Reject an ID reused with different contents.
 6. Check the signature, verified sender, recipient, grant, and deadlines before local import.
-7. Protect the received secret locally and persist receipt before sending an acknowledgment.
+7. Protect the received secret locally. Persist the receipt. Then send an acknowledgment.
 8. Return existing receipt status for duplicate delivery without another secret import.
 9. Persist acknowledgments for offline senders.
 10. Retain duplicate-delivery records through the replay window.
 
 Give transfers, acknowledgments, and status replies explicit retention deadlines.
 Never retry expired ciphertext under a new ID without a new user submission.
-The sharing UI distinguishes queued, sent, received, failed, and expired states.
-Issue #14 defines the controls and activity view.
-Issue #17 connects those controls to actual relay delivery.
-Issue #14 does not depend on #17.
-Issue #20 checks the connected flow.
+The relay sharing UI (#14) distinguishes queued, sent, received, failed, and expired states.
 
 Delivery expiry blocks later import of that message.
 It cannot revoke credentials already delivered.
@@ -212,9 +187,9 @@ Received injection-only grants deny reveal, copy, and reshare from the time of i
 These restrictions belong to Phase 2 and do not depend on agent approval.
 
 Check grant expiry before import and access, at startup, after resume, and during scheduled cleanup.
-Remove expired recipient Keychain entries and applicable encrypted files.
+Delete expired recipient Keychain entries and the applicable encrypted files.
 Persist cleanup outcomes and queue an encrypted expiry notification for the sender.
-Cleanup cannot run while the app is closed or the device is asleep.
+Cleanup cannot run while the app does not run or the Mac sleeps.
 Cleanup must finish before new access after startup or resume.
 External copies can retain delivered credentials.
 
@@ -222,7 +197,7 @@ External copies can retain delivered credentials.
 
 Local vault operations remain available during relay outages.
 Persist pending transfers, replies, grant deadlines, delivery records, and cached activity locally.
-The UI identifies cached status separately from confirmed remote status.
+The UI shows cached status separately from remote status that the relay reported.
 Cross-device delivery and acknowledgments require the relay.
 Local expiry checks do not depend on a live subscription.
 
@@ -233,121 +208,94 @@ It extends #16 envelopes and #17 delivery for encrypted task requests, refusals,
 The standalone local request contracts remain independent of relay identities and wire envelopes.
 
 Require local recipient approval tied to the task, grant, recipient, and message ID.
-Check the permitted operation, active grant, and deadline immediately before launch.
+Check the permitted operation, the active grant, and the deadline immediately before the start.
 A relay message or agent cannot approve its own execution.
 Reject arbitrary commands and reused approval responses.
-Reuse the approved local launch path from #8 and runtime injection from #32.
+Use again the approved local start path from #8 and the runtime injection from #32.
 
-Persist an execution claim before launch.
+Persist an execution claim before the start.
 Persist outcomes and encrypted, signed, correlated replies for offline senders.
 Return approved, redacted results only.
 Keep secrets, task contents, and execution output inside ciphertext.
 Do not relay unrestricted agent logs.
 
 Durable execution records prevent duplicate delivery from automatically repeating execution.
-A claim without a durable outcome after a crash requires local review before another launch.
+After a crash, a claim without a durable outcome needs local review before another start.
 Retain execution records through the replay window.
 Do not promise exactly-once execution of arbitrary process side effects.
-An expired grant blocks new launches but cannot remove credentials from an already-running process.
+An expired grant blocks new starts. It cannot delete credentials from a process that runs already.
 
-Add remote approval and execution states under #33.
 Keep receipt distinct from awaiting approval, running, completed, refused, expired, and uncertain execution.
-Check crash recovery, duplicate execution, and offline result return during integration.
-Local Agent Access remains usable without the relay.
-Basic sharing remains usable without an agent.
+Local Agent Access stays usable without the relay. Sharing stays usable without an agent.
 
 ## Implementation order
 
-Complete local runtime injection before relay setup.
-Then develop the relay and local Agent Access branches independently.
-Only #33 combines their prerequisites.
-
-GitHub issue IDs stay unchanged.
-Title prefixes define a valid topological order.
-A ticket starts when its listed prerequisites pass.
-Numeric branch order does not block independent work.
+Complete local runtime injection before relay setup. Then develop the relay and local Agent Access independently.
+Only #33 combines both. A ticket starts when its prerequisites pass. GitHub issue IDs stay unchanged.
 
 ### Local foundation
 
-| Order | Issue | Work | Prerequisites |
-|---|---|---|---|
-| 1.1 | [#24](https://github.com/omavashia2005/.sct/issues/24) | Bootstrap the Electron, React, and TypeScript app | None |
-| 1.2 | [#1](https://github.com/omavashia2005/.sct/issues/1) | Create a stable Electron app signing identity | #24 |
-| 1.3 | [#25](https://github.com/omavashia2005/.sct/issues/25) | Build the basic Secrets screen | #24 |
-| 1.4 | [#26](https://github.com/omavashia2005/.sct/issues/26) | Connect the Secrets screen to macOS Keychain | #24, #1, #25 |
-| 1.5 | [#2](https://github.com/omavashia2005/.sct/issues/2) | Test Keychain access after Electron rebuild | #1, #26 |
-| 1.6 | [#6](https://github.com/omavashia2005/.sct/issues/6) | Check the local vault operations for sharing | #2, #26 |
-| 1.7 | [#32](https://github.com/omavashia2005/.sct/issues/32) | Inject project secrets at runtime without .env files | #6, #26 |
+| Order | Issue | Work | Prerequisites | State |
+|---|---|---|---|---|
+| 1.1 | [#24](https://github.com/omavashia2005/.sct/issues/24) | Bootstrap the Electron, React, and TypeScript app | None | Done |
+| 1.2 | [#1](https://github.com/omavashia2005/.sct/issues/1) | Create a stable Electron app signing identity | #24 | Done |
+| 1.3 | [#25](https://github.com/omavashia2005/.sct/issues/25) | Build the basic Secrets screen | #24 | Done |
+| 1.4 | [#26](https://github.com/omavashia2005/.sct/issues/26) | Connect the Secrets screen to macOS Keychain | #24, #1, #25 | Done |
+| 1.5 | [#2](https://github.com/omavashia2005/.sct/issues/2) | Test Keychain access after Electron rebuild | #1, #26 | Done |
+| 1.6 | [#6](https://github.com/omavashia2005/.sct/issues/6) | Check the local vault operations for sharing | #2, #26 | Done |
+| 1.7 | [#32](https://github.com/omavashia2005/.sct/issues/32) | Inject project secrets at runtime without .env files | #6, #26 | Done |
 
 ### Relay setup and contracts
 
-| Order | Issue | Work | Prerequisites |
-|---|---|---|---|
-| 2.1.1 | [#3](https://github.com/omavashia2005/.sct/issues/3) | Set up the cloud-hosted SpacetimeDB relay | #32 |
-| 2.1.2 | [#11](https://github.com/omavashia2005/.sct/issues/11) | Define the relay schema and communication contract | #3 |
-| 2.1.3 | [#12](https://github.com/omavashia2005/.sct/issues/12) | Connect Electron storage to the SpacetimeDB relay | #6, #11 |
-| 2.1.4 | [#15](https://github.com/omavashia2005/.sct/issues/15) | Verify pairing and bind device keys to relay identities | #6, #11, #12 |
-| 2.1.5 | [#16](https://github.com/omavashia2005/.sct/issues/16) | Define encrypted secret transfer and acknowledgment envelopes | #11, #15 |
-| 2.1.6 | [#13](https://github.com/omavashia2005/.sct/issues/13) | Secure the sharing operations across the Electron boundary | #12 |
+| Order | Issue | Work | Prerequisites | State |
+|---|---|---|---|---|
+| 2.1.1 | [#3](https://github.com/omavashia2005/.sct/issues/3) | Set up the cloud-hosted SpacetimeDB relay | #32 | Done |
+| 2.1.2 | [#11](https://github.com/omavashia2005/.sct/issues/11) | Define the relay schema and communication contract | #3 | Done |
+| 2.1.3 | [#12](https://github.com/omavashia2005/.sct/issues/12) | Connect Electron storage to the SpacetimeDB relay | #6, #11 | Done |
+| 2.1.4 | [#15](https://github.com/omavashia2005/.sct/issues/15) | Verify pairing and bind device keys to relay identities | #6, #11, #12 | Done |
+| 2.1.5 | [#16](https://github.com/omavashia2005/.sct/issues/16) | Define encrypted secret transfer and acknowledgment envelopes | #11, #15 | Open |
+| 2.1.6 | [#13](https://github.com/omavashia2005/.sct/issues/13) | Secure the sharing operations across the Electron boundary | #12 | Done |
 
 ### Sharing UI, delivery, and security checks
 
-| Order | Issue | Work | Prerequisites |
-|---|---|---|---|
-| 2.2.1 | [#14](https://github.com/omavashia2005/.sct/issues/14) | Build the secret sharing and delivery activity UI | #13, #15, #16 |
-| 2.2.2 | [#17](https://github.com/omavashia2005/.sct/issues/17) | Deliver secrets and acknowledgments through SpacetimeDB | #3, #11, #12, #15, #16, #13, #14 |
-| 2.2.3 | [#19](https://github.com/omavashia2005/.sct/issues/19) | Handle sharing expiry, local cleanup, and retry deadlines | #17 |
-| 2.2.4 | [#20](https://github.com/omavashia2005/.sct/issues/20) | Check secure secret sharing on two devices | #17, #19 |
+| Order | Issue | Work | Prerequisites | State |
+|---|---|---|---|---|
+| 2.2.1 | [#14](https://github.com/omavashia2005/.sct/issues/14) | Build the secret sharing and delivery activity UI | #13, #15, #16 | Open |
+| 2.2.2 | [#17](https://github.com/omavashia2005/.sct/issues/17) | Deliver secrets and acknowledgments through SpacetimeDB | #3, #11, #12, #15, #16, #13, #14 | Open |
+| 2.2.3 | [#19](https://github.com/omavashia2005/.sct/issues/19) | Handle sharing expiry, local cleanup, and retry deadlines | #17 | Open |
+| 2.2.4 | [#20](https://github.com/omavashia2005/.sct/issues/20) | Check secure secret sharing on two devices | #17, #19 | Open |
 
-Build #14 with delivery work in #17 so users can test transfers from the app.
-The UI contract precedes the delivery connection.
-Issue #14 does not depend on #17.
+Build the #14 UI together with #17 delivery so that users can test transfers from both app windows. #14 does not depend on #17.
 
-### Independent local Agent Access
+### Local Agent Access
 
-| Order | Issue | Work | Prerequisites |
-|---|---|---|---|
-| 3.1 | [#5](https://github.com/omavashia2005/.sct/issues/5) | Add the TypeScript agent CLI, MCP entrypoint, and demo build commands | #32, #24, #1 |
-| 3.2 | [#7](https://github.com/omavashia2005/.sct/issues/7) | Define local agent requests and the authenticated request channel | #5, #6, #32 |
-| 3.3 | [#4](https://github.com/omavashia2005/.sct/issues/4) | Check Claude Code MCP approval | #5, #24 |
-| 3.4 | [#18](https://github.com/omavashia2005/.sct/issues/18) | Enforce local project access and agent approval | #7, #32 |
-| 3.5 | [#8](https://github.com/omavashia2005/.sct/issues/8) | Launch approved local agents with project environment injection | #7, #18, #32 |
-| 3.6 | [#9](https://github.com/omavashia2005/.sct/issues/9) | Implement the narrow MCP interface | #4, #8 |
-| 3.7 | [#10](https://github.com/omavashia2005/.sct/issues/10) | Connect Claude Code and check local Agent Access | #9, #24 |
+| Order | Issue | Work | Prerequisites | State |
+|---|---|---|---|---|
+| 3.1 | [#5](https://github.com/omavashia2005/.sct/issues/5) | Add the TypeScript agent CLI, MCP entrypoint, and demo build commands | #32, #24, #1 | Done |
+| 3.2 | [#7](https://github.com/omavashia2005/.sct/issues/7) | Define local agent requests and the authenticated request channel | #5, #6, #32 | Done |
+| 3.3 | [#4](https://github.com/omavashia2005/.sct/issues/4) | Check Claude Code MCP approval | #5, #24 | Done |
+| 3.4 | [#18](https://github.com/omavashia2005/.sct/issues/18) | Enforce local project access and agent approval | #7, #32 | Done |
+| 3.5 | [#8](https://github.com/omavashia2005/.sct/issues/8) | Launch approved local agents with project environment injection | #7, #18, #32 | Done |
+| 3.6 | [#9](https://github.com/omavashia2005/.sct/issues/9) | Implement the narrow MCP interface | #4, #8 | Done |
+| 3.7 | [#10](https://github.com/omavashia2005/.sct/issues/10) | Connect Claude Code and check local Agent Access | #9, #24 | Done |
 
-These issues have no direct or indirect dependency on a relay issue.
-They use local vault operations and #32 runtime injection.
-They can finish without relay configuration, pairing, or #20.
+These issues have no direct or indirect relay dependency.
 
 ### Integration
 
-| Order | Issue | Work | Prerequisites |
-|---|---|---|---|
-| 3.8 | [#33](https://github.com/omavashia2005/.sct/issues/33) | Integrate local Agent Access with encrypted relay sharing | #20, #10, #16, #17, #19 |
+| Order | Issue | Work | Prerequisites | State |
+|---|---|---|---|---|
+| 3.8 | [#33](https://github.com/omavashia2005/.sct/issues/33) | Integrate local Agent Access with encrypted relay sharing | #20, #10, #16, #17, #19 | Open |
 
-Issue #33 adds remote grant validation, task envelopes, execution records, encrypted replies, and remote activity states.
-Check crash recovery, duplicate execution, and offline result return here.
-Local agents remain independent of relay availability.
-Basic sharing remains independent of agents.
+### Post-MVP
 
-### Post-MVP and maintenance
+| Order | Issue | Work | Prerequisites | State |
+|---|---|---|---|---|
+| 4.1 | [#22](https://github.com/omavashia2005/.sct/issues/22) | Add AirDrop transport for encrypted handoffs | #20, #15, #16, #18 | Open |
+| 4.2 | [#23](https://github.com/omavashia2005/.sct/issues/23) | Add Factory integration through the narrow MCP interface | #10, #9, #18 | Open |
+| 4.3 | [#40](https://github.com/omavashia2005/.sct/issues/40) | Create experimental Wallet cards and share them through AirDrop | #24 | Open |
 
-| Order | Issue | Work | Prerequisites |
-|---|---|---|---|
-| 4.1 | [#22](https://github.com/omavashia2005/.sct/issues/22) | Add AirDrop transport for encrypted handoffs | #20, #15, #16, #18 |
-| 4.2 | [#23](https://github.com/omavashia2005/.sct/issues/23) | Add Factory integration through the narrow MCP interface | #10, #9, #18 |
-
-Issue #30 is separate workflow maintenance.
-Issue #21 remains closed because demo rehearsal is outside development scope.
-
-## Checks
-
-Use existing checks during implementation.
-Run Playwright UI checks and React Doctor after each UI change.
-Run the repository lint and type checks.
-Follow AGENTS.md approval requirements before adding new tests.
-Check sharing independently in #20 and local Agent Access independently in #10.
-Check their integration in #33.
+Issue #30 was workflow maintenance. Issue #21 stays closed, because demo rehearsal is outside development scope.
 
 ## Reference documentation
 

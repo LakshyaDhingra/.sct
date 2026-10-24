@@ -1,7 +1,7 @@
 # Relay setup
 
 .sct uses SpacetimeDB Maincloud as the cloud-hosted relay.
-The relay stores ciphertext and routing metadata only. See the [architecture](architecture.md#phase-2-architecture).
+The relay stores ciphertext and routing metadata only. See the [architecture](architecture.md#relay-sharing-phase-2).
 
 ## Hosted database
 
@@ -68,7 +68,7 @@ Use the same command to publish an update.
 Do not use `--delete-data` unless you intend to delete all relay data.
 
 The build prints `tsc not found in node_modules`.
-This warning is expected, because `packages/relay` has no `node_modules` folder. The repository type checks replace this check.
+Ignore this warning. `packages/relay` has no `node_modules` folder, and the repository type checks replace this check.
 
 ## Deployment credentials
 
@@ -102,7 +102,7 @@ Device private keys and secret values never go to the relay.
 
 ## App connection
 
-The Electron main process connects to the relay when the app starts. Command-line launches do not connect.
+The desktop app connects to the relay when it starts. A command-line process does not connect. The only exception is an approved `relay_status` request.
 
 - The Keychain service `.sct-relay` holds the relay token in `token/<server>/<database>`.
 - After each connection, the app registers the public keys of its AirDrop device card with `registerDevice`.
@@ -111,7 +111,7 @@ The Electron main process connects to the relay when the app starts. Command-lin
 - After a lost connection, the client reconnects and restores the subscriptions.
   If the client stops, the app makes a new connection after 1 s, then up to 30 s between attempts.
 - The app saves the view rows in `relay/cache-<server hash>.sct` in the app data folder.
-  The file is encrypted with AES-256-GCM. Its key is in `.sct-relay` under `cache/<server>/<database>`.
+  The app encrypts the file with AES-256-GCM. The key is in `.sct-relay` under `cache/<server>/<database>`.
   Each relay server has its own files, so a test relay cannot replace the files of the live relay.
   Received ciphertext and delivery status stay available after a restart without the relay.
 - Local vault operations do not depend on the relay.
@@ -138,12 +138,12 @@ A device verified through AirDrop still needs a relay pairing, and the reverse i
 3. Both apps show the pending pair and the same pairing code.
    The code comes from both relay identities and both device public keys.
 4. The users compare the codes, for example in person or on a call.
-5. If the codes match, each user confirms. Each app saves the public keys of the other device.
-   The app of device B also calls `confirmPair`. Only the device that did not send the request can confirm on the relay.
-6. If the codes differ, a user removes the pair. The app calls `removePair` and saves nothing.
+5. If the codes are the same, each user accepts the pair. Each app saves the public keys of the other device.
+   The app of device B also calls `confirmPair`. On the relay, only the device that did not send the request can accept the pair.
+6. If the codes are different, a user deletes the pair. The app calls `removePair` and saves nothing.
 
-The app saves the confirmed keys in `relay/peers-<server hash>.sct`.
-The file is encrypted with AES-256-GCM. Its key is in `.sct-relay` under `peers/<server>/<database>`.
+The app saves the accepted keys in `relay/peers-<server hash>.sct`.
+The app encrypts this file with AES-256-GCM. The key is in `.sct-relay` under `peers/<server>/<database>`.
 If the app cannot read the file, every peer needs a new code comparison.
 
 Each peer in `getRelayState` has a trust state:
@@ -158,7 +158,7 @@ Each peer in `getRelayState` has a trust state:
 Before a device sends a secret, the relay pair must be `Verified` and the peer trust state must be `verified`.
 Issue #17 applies this rule to sending.
 
-The renderer uses `requestRelayPair`, `confirmRelayPair`, and `removeRelayPair`.
+The preload bridge exposes `requestRelayPair`, `confirmRelayPair`, and `removeRelayPair`. No screen uses them yet. Issue #14 adds the relay sharing UI.
 `confirmRelayPair` takes the code on the screen. It fails if the current code is different, for example after a key change.
 
 ## Client bindings

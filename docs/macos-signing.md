@@ -40,6 +40,7 @@ bun run package:mac
 
 The command compiles the application, packages its generated files, and signs the app and nested Electron binaries.
 The command also copies the `@napi-rs/keyring` native module into the app. The `.node` binary stays outside the asar archive, and the command signs it with the app.
+It copies the AirDrop helper (`out/airdrop`) to `Contents/Resources` and signs it with the app.
 It selects the certificate by its fingerprint after checking its name and code-signing validity.
 This code-signing check replaces the signing library's general certificate lookup, which rejects certificates trusted only for code signing.
 The command then checks the complete signature and the expected bundle identifier and certificate.
@@ -60,17 +61,16 @@ open dist/sct-darwin-arm64/sct.app
 ```
 
 Use the `sct-darwin-x64` directory on an Intel Mac.
-Run `bun run install:cli` to install `~/.local/bin/sct` as a launcher for the signed executable.
-The TypeScript SDK uses this command through private process pipes, so SDK consumers do not access Keychain directly.
-See [CLI and SDK setup](runtime-injection.md).
-`bun run dev` and `bun start` use the development Electron runner. They do not create the signed application bundle.
+Run `bun run install:cli` to install the `sct` command. See [CLI and SDK setup](runtime-injection.md).
+`bun run dev` and `bun start` use the development Electron runner. They create no signed app.
 
 ## Check a rebuild
 
 1. Run `bun run package:mac`.
 2. Record the certificate fingerprint from its output.
 3. Run `bun run package:mac` again.
-4. Check that both builds pass signature verification and report the same fingerprint.
+4. Check that both builds pass the signature check.
+5. Check that both builds report the same fingerprint.
 
 For an additional inspection on Apple Silicon:
 
@@ -83,29 +83,12 @@ codesign --display --requirements - dist/sct-darwin-arm64/sct.app
 The identifier must be `com.omavashia2005.sct`. The authority must be `.sct Development`.
 The designated requirement must remain the same after a rebuild.
 
-### Issue #6 check
-
-On 2026-10-24, the local check used macOS 26.5.1 on arm64, Electron 45.0.0, and Bun 1.4.4.
-The signed Electron executable created an isolated vault fixture and read its value through `Vault.withSecret`.
-After a signed rebuild, the executable read the same value with the same Keychain keys.
-Both builds passed signature verification with the `.sct Development` identity.
-
-This check used the signed executable in Node mode with the vault source. It did not operate the packaged GUI.
-The existing Electron UI checks separately passed with network requests blocked.
-The fixture used separate Keychain items. The signed executable deleted the fixture project and its keys after the check.
-This check ran on one Mac. It did not repeat the two-device checks from #2.
-
 ## Scope
 
-This identity signs local development builds. It does not establish Apple trust for public distribution or provide notarization.
-Hardened Runtime stays enabled. The build grants `com.apple.security.cs.disable-library-validation` because the local certificate has no Apple Team ID.
-Without this entitlement, macOS rejects Electron's bundled framework at launch.
-This entitlement also permits libraries without a matching Team ID. Use this signing configuration for local development only.
-The build still signs and verifies the app and its nested binaries.
-Phase 1 issue [1.5, #2](https://github.com/omavashia2005/.sct/issues/2) covers Keychain access after a signed rebuild on both demo Macs.
-The [implementation order](architecture.md#implementation-order) keeps relay sharing and local Agent Access independent until integration.
-Signing requires no CLI, MCP server, or agent.
-CI continues to check the application without a developer's private signing key.
+This identity signs local development builds. It provides no Apple trust for public distribution and no notarization.
+Hardened Runtime stays on. The build grants `com.apple.security.cs.disable-library-validation`, because the local certificate has no Apple Team ID.
+Without it, macOS rejects the Electron framework when the app starts. The entitlement also permits other libraries without a matching Team ID. Thus use this configuration for development only.
+CI checks the app without a signing key.
 
 See [Apple's certificate instructions](https://support.apple.com/guide/keychain-access/create-self-signed-certificates-kyca8916/mac)
 and [Electron's signing guide](https://www.electronjs.org/docs/latest/tutorial/code-signing).
