@@ -1,55 +1,99 @@
-# Local agent entrypoints and demo
+# Local Agent Access
 
-Issue #5 adds the TypeScript entrypoints and build outputs for local Agent Access.
-These entrypoints require no relay configuration, paired device, or network connection.
-The existing `sct run` command remains independent of Agent Access.
+.sct exposes its core operations through a TypeScript CLI and a stdio MCP server.
+Both interfaces use the same request checks and local approval window.
+Responses contain metadata and fixed outcomes, without secret values or process logs.
+Local project operations require no relay configuration, paired device, or network connection.
 
-## Build
+## Build and install
 
 From the repository root, run:
 
 ```sh
 bun run package:mac
+bun run install:cli
 ```
 
-This command builds the desktop app, agent CLI, stdio MCP entrypoint, TypeScript SDK, and console demo.
-It packages the entrypoints and demo with the existing signed Electron app.
-The signing identity remains `.sct Development`. The bundle identifier remains `com.omavashia2005.sct`.
+The first command builds the desktop app, CLI, MCP server, TypeScript SDK, console demo, and bundled skills.
+It uses the existing `.sct Development` signing identity and `com.omavashia2005.sct` bundle identifier.
 See [signing setup](macos-signing.md) for local prerequisites.
+The second command links the signed executable as `~/.local/bin/sct`.
 
-For an unsigned development build, use `bun run build`.
-Both commands create `out/demo/index.cjs`. `bun run build:demo` rebuilds only the demo.
+Use `bun run build` for an unsigned development build.
+Use `bun run build:demo` to rebuild only `out/demo/index.cjs`.
 The demo source participates in both repository type checks.
 
-Install the existing CLI link after packaging:
+## CLI
+
+Inspect the available operations and input schemas:
 
 ```sh
-bun run install:cli
 sct agent --help
-sct mcp --help
+sct agent --schema
 ```
 
-## Agent CLI
+Supply a JSON object through stdin:
 
-`sct agent --stdin` reserves the local submission entrypoint.
-It currently refuses all submissions with exit code 1, without reading stdin, accessing the vault, or launching a task.
-It rejects other arguments without printing their contents.
-Issue #7 adds the authenticated request channel and checks local request fields.
-Issues #18 and #8 add project access checks, local approval, and execution.
+```sh
+printf '%s' '{}' | sct agent list_secrets --stdin
+```
 
-Use project IDs and secret IDs as references when the request contract becomes available.
-Secret IDs identify saved entries. They are not secret values.
-The desktop and CLI must resolve the same registered project and secret.
-Issue #7 defines that contract, including stdin input for values that do not use a saved reference.
+The example selects the nearest registered parent of the caller's working directory.
+Supply `projectId` to select a specific registered project.
+`project_setup` returns that ID when it finds or registers a folder.
+Use secret IDs from `list_secrets`. IDs are references, not credential values.
 
-Never place secret values in command arguments, shell substitutions, or inline shell commands.
-Supply such values through a private stdin pipe from the calling process.
-Do not print the pipe contents or save them in the project folder.
-No submission can execute through this entrypoint before the required validation and approval exist.
+The CLI also accepts an envelope through `sct agent --stdin`:
+
+```json
+{
+  "operation": "list_secrets",
+  "input": {}
+}
+```
+
+The result contains `requestId`, `status`, and an operation result or a fixed error.
+The status is `completed`, `refused`, `expired`, or `failed`.
+The CLI returns exit code 0 only for a completed request.
+Stop after refusal or expiry. A retry requires a new request and local approval.
+
+## Operations
+
+Each operation has the same name in MCP and the CLI.
+The `projectId` field is optional where the table lists it.
+All operations also accept an optional ISO 8601 `expiresAt` deadline.
+
+| Operation | Input fields | Result |
+|---|---|---|
+| `project_setup` | `directory`, optional `name` | Existing or newly registered project metadata |
+| `list_secrets` | `projectId` | Secret IDs and environment names in one project |
+| `describe_secret` | `projectId`, `secretId` | One secret's metadata |
+| `delete_secret` | `projectId`, `secretId` | The deleted secret ID |
+| `run_demo` | `projectId`, `secretId` | `exitCode` and `secretPresent` for the fixed demo |
+| `sharing_state` | None | This device, verified AirDrop recipients, and pending transfer metadata |
+| `pair_device` | `action: "export"`, or `action: "verify"` with `path` | A public device card path or verified device metadata |
+| `send_secrets_to` | `projectId`, `secretIds`, `recipientId` | An encrypted transfer path and `awaiting-transport` status |
+| `relay_status` | None | Relay connection and cached peer, inbox, and sent metadata |
+
+Unknown fields and arbitrary commands fail request checks.
+Keep vault storage outside source folders. No operation creates an `.env` file or replacement secret file in the project.
+
+## Local approval
+
+Each request requires explicit approval in the local .sct window.
+The window shows the operation, project, selected secret names, request ID, and deadline where applicable.
+The default deadline is two minutes. A caller can request up to five minutes from submission.
+Refusal, expiry, or disconnection prevents a pending request from receiving approval.
+Approval applies to one request only. It cannot authorize another task or secret selection.
+
+The agent cannot approve through CLI input, MCP, or a tool response.
+Host approval in an MCP client does not replace the local .sct decision.
+`run_demo` accepts only the fixed environment demo, without arbitrary commands or unrestricted process logs.
+The child and its descendants can read or copy injected values.
 
 ## Stdio MCP
 
-Configure an MCP client with the installed executable and a single argument:
+Configure an MCP client with the installed executable:
 
 ```json
 {
@@ -63,35 +107,78 @@ Configure an MCP client with the installed executable and a single argument:
 ```
 
 Replace the command path with your installed CLI path.
-This configuration contains no credentials and needs no environment settings.
-The client must connect stdin and stdout through pipes.
-Stdout carries MCP messages only. Diagnostics use stderr and do not include submitted contents.
-Closing stdin ends the MCP process.
+This configuration contains no credentials and needs no environment settings for local operations.
+The client must connect stdin and stdout through private pipes.
+Stdout carries MCP messages only. Fixed diagnostics use stderr without submitted contents.
+Closing stdin ends the MCP process and cancels pending requests.
 
-The entrypoint supports protocol initialization and ping through the official TypeScript SDK.
-It advertises no tools, resources, or prompts and provides no vault access.
-Issue #9 adds the MCP operations after request validation, access checks, and approved execution exist.
-Claude Code approval checks belong to #4 and #10.
+The server exposes the operations above as tools.
+It also exposes each workflow as a prompt with the operation name and a Markdown resource at `sct://skills/<operation>`.
+MCP `run_demo` requires a saved `secretId`. MCP does not accept a plaintext credential value.
+Claude Code integration and host approval checks remain separate validation work in #4 and #10.
 
-## Run the console demo
+## Skills
 
-Register an existing project folder in the desktop app.
-Save a variable named `SCT_DEMO_TOKEN` in that project.
-Keep the encrypted vault outside the project folder.
+The repository contains one skill for each operation under `skills/sct-<operation-name>/SKILL.md`.
+Skill folder names replace underscores with hyphens.
+Inspect the installed bundle:
 
-From the registered project folder, run the built demo through the standalone runner:
+```sh
+sct skills
+```
+
+The result contains the bundled directory and skill names.
+For offline installation, copy the desired skill folders into your agent's skill directory.
+Common locations are `~/.agents/skills` for Codex and `~/.claude/skills` for Claude Code.
+After this PR merges, install through the standard skills CLI if available:
+
+```sh
+npx skills add omavashia2005/.sct
+```
+
+Select the workflows you need. A skill does not grant access or bypass local approval.
+MCP clients can also read the bundled prompts and resources without copying files.
+
+## Private stdin input
+
+Use saved references when possible. Never place secret values in arguments, shell substitutions, inline shell text, logs, or MCP calls.
+The private CLI channel supports an unsaved value for the fixed demo.
+The calling process writes an envelope with `operation: "run_demo"`, `input`, and a top-level `stdinValue`.
+Omit `input.secretId` when supplying `stdinValue`. Supply exactly one source.
+Do not save the envelope in the project folder or print its contents.
+
+The selected value enters the fixed demo as `SCT_DEMO_TOKEN` in the child environment.
+The result reports presence and the exit code. It does not return the value or process output.
+An empty value counts as present.
+
+## Pairing, sending, and relay scope
+
+`pair_device` uses the existing public AirDrop device cards.
+The user compares the code on both Macs before local approval of pairing.
+Exchange cards and complete local pairing on both Macs for sharing in both directions.
+`sharing_state` returns the verified recipient IDs for `send_secrets_to`.
+
+Sending encrypts the selected secrets for one verified recipient and opens the native macOS share menu.
+The user must choose that same recipient in macOS.
+`awaiting-transport` does not prove delivery, receipt, or import.
+The recipient accepts the file and imports it through the desktop app.
+
+PR #43 provides relay connection and encrypted cache support.
+`relay_status` starts that connection only when requested by an approved agent operation.
+It returns metadata without tokens, payloads, wrapped keys, or private keys.
+Identify rows as cached when `connection` is not `connected`. Use `updatedAt` to report their age.
+This interface does not provide relay pairing, publication, or delivery acknowledgments.
+See [relay configuration](relay.md) for `SCT_RELAY` and the cache behavior.
+
+## Standalone runtime
+
+The existing `sct run` command remains independent of Agent Access and local approval requests.
+For a manual demo, save `SCT_DEMO_TOKEN` in a registered project and run from that project:
 
 ```sh
 sct run -- node /absolute/path/to/.sct/out/demo/index.cjs
 ```
 
 Replace the path with your repository's build output.
-The command receives the saved variable through its environment before the demo runs.
-The demo prints only whether the variable exists. An empty saved value also counts as present.
-It prints no value, accepts no arguments, and uses no network service.
-It returns exit code 1 if the variable is absent or the caller supplies arguments.
-
-This manual command uses the existing trusted project runner. It is not an agent approval path.
-The project needs no `.env` file, secret manifest, or replacement secret file.
-The demo creates no project files.
-See [runtime injection](runtime-injection.md) for runner behavior and trust requirements.
+The demo prints presence only. It creates no project files and uses no network service.
+See [runtime injection](runtime-injection.md) for standalone runner behavior and trust requirements.

@@ -105,7 +105,9 @@ Issue #33 later maps remote tasks and received grants onto this local path.
 Claude Code's own model service can require internet access independently of the relay.
 
 Issue #8 provides local approval and execution states where needed.
-Issue #9 exposes list_secrets, describe_secret, and run_demo only.
+Issue #9 exposes project_setup, list_secrets, describe_secret, delete_secret, send_secrets_to, and run_demo.
+Pairing and sharing use the existing encrypted AirDrop workflow. relay_status exposes the connection and cached metadata from #12.
+Local operations initialize no relay connection. Each agent operation requires a separate local approval.
 Issue #10 checks local Claude integration, refusal, deadlines, and reused approvals.
 Keep plaintext values outside command arguments, logs, renderer responses, and MCP results.
 
