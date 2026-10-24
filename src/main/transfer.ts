@@ -81,8 +81,16 @@ export function describeDevice(card: DeviceCard): SharingDevice {
 }
 
 export function pairingCode(local: DeviceCard, peer: DeviceCard): string {
-  return createHash('sha256').update(JSON.stringify(['sct-pair-v1', ...[describeDevice(local).id, describeDevice(peer).id].sort()]))
-    .digest('hex').slice(0, 24).toUpperCase().replace(/(.{4})(?=.)/g, '$1 ')
+  return formatCode(['sct-pair-v1', ...[describeDevice(local).id, describeDevice(peer).id].sort()])
+}
+
+// The relay code also binds both relay identities, so it differs from the AirDrop code of the same two devices.
+export function relayPairingCode(local: DeviceCard, localIdentity: string, peer: DeviceCard, peerIdentity: string): string {
+  return formatCode(['sct-relay-pair-v1', ...[`${localIdentity}/${describeDevice(local).id}`, `${peerIdentity}/${describeDevice(peer).id}`].sort()])
+}
+
+function formatCode(parts: string[]): string {
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24).toUpperCase().replace(/(.{4})(?=.)/g, '$1 ')
 }
 
 export function encryptTransfer(identity: DeviceIdentity, recipient: DeviceCard, projectName: string,

@@ -38,6 +38,7 @@ import AcknowledgeReducer from "./acknowledge_reducer";
 import ConfirmPairReducer from "./confirm_pair_reducer";
 import PublishSecretReducer from "./publish_secret_reducer";
 import RegisterDeviceReducer from "./register_device_reducer";
+import RemovePairReducer from "./remove_pair_reducer";
 import RequestPairReducer from "./request_pair_reducer";
 
 // Import all procedure arg schemas
@@ -80,6 +81,7 @@ const reducersSchema = __reducers(
   __reducerSchema("confirm_pair", ConfirmPairReducer),
   __reducerSchema("publish_secret", PublishSecretReducer),
   __reducerSchema("register_device", RegisterDeviceReducer),
+  __reducerSchema("remove_pair", RemovePairReducer),
   __reducerSchema("request_pair", RequestPairReducer),
 );
 

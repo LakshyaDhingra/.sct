@@ -1,10 +1,11 @@
 import { AsyncEntry } from '@napi-rs/keyring'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
-import type { Identity } from 'spacetimedb'
+import { join } from 'node:path'
+import { Identity } from 'spacetimedb'
 import { DbConnection } from './relay'
 import { decodeFile, encodeFile, open, seal } from './seal'
+import { readDeviceCard, relayPairingCode } from './transfer'
 import type { DeviceCard } from './transfer'
 import type { RelayConnection, RelayInboxItem, RelayPeer, RelaySentItem, RelayState } from '../shared/relay'
 
@@ -13,13 +14,30 @@ export interface RelayServer {
   database: string
 }
 
+interface CachedPeer {
+  pairId: string
+  identity: string
+  initiator: string
+  name: string
+  status: RelayPeer['status']
+  encryptionPublicKey: string
+  signingPublicKey: string
+}
+
 // The cache keeps the relay rows of the last connection. Inbox payloads and wrapped keys stay ciphertext.
 interface Cache {
   identity: string | null
   updatedAt: string | null
-  peers: (RelayPeer & { encryptionPublicKey: string; signingPublicKey: string })[]
+  peers: CachedPeer[]
   inbox: (RelayInboxItem & { payload: string; wrappedKey: string })[]
   sent: RelaySentItem[]
+}
+
+// The keys of a peer at the time both users compared the pairing code.
+interface Pin {
+  identity: string
+  encryptionKey: string
+  signingKey: string
 }
 
 const liveServer: RelayServer = { uri: 'https://maincloud.spacetimedb.com', database: 'sct-relay' }
@@ -39,6 +57,7 @@ export function relayServer(setting = process.env.SCT_RELAY): RelayServer | unde
 export class Relay {
   private connection: DbConnection | undefined
   private cache: Cache = emptyCache
+  private pins: Pin[] = []
   private status: RelayConnection
   private registered = false
   private error: string | null = null
@@ -46,8 +65,9 @@ export class Relay {
   private retry: NodeJS.Timeout | undefined
   private stopped = false
   private saving: Promise<void> = Promise.resolve()
+  private pending: Promise<void> = Promise.resolve()
 
-  constructor(private readonly server: RelayServer | undefined, private readonly cacheFile: string,
+  constructor(private readonly server: RelayServer | undefined, private readonly directory: string,
     private readonly deviceCard: () => Promise<DeviceCard>, private readonly changed: () => void,
     private readonly service = '.sct-relay') {
     this.status = server ? 'connecting' : 'off'
@@ -55,7 +75,9 @@ export class Relay {
 
   async start(): Promise<void> {
     if (!this.server) return
-    this.cache = await this.readCache()
+    this.cache = await this.readSealed('cache', emptyCache)
+    // An unreadable list fails closed: every peer needs a new code comparison.
+    this.pins = (await this.readSealed<{ pins: Pin[] }>('peers', { pins: [] })).pins
     void this.connect()
   }
 
@@ -65,17 +87,48 @@ export class Relay {
     this.connection?.disconnect()
   }
 
-  state(): RelayState {
+  async state(): Promise<RelayState> {
+    const local = await this.deviceCard().catch(() => undefined)
     return {
       connection: this.status,
       identity: this.cache.identity,
       registered: this.registered,
       error: this.error,
       updatedAt: this.cache.updatedAt,
-      peers: this.cache.peers.map(({ pairId, identity, name, status }) => ({ pairId, identity, name, status })),
+      peers: this.cache.peers.map((peer) => describePeer(peer, local, this.cache.identity, this.pins)),
       inbox: this.cache.inbox.map(({ messageId, sender, createdAt }) => ({ messageId, sender, createdAt })),
       sent: this.cache.sent
     }
+  }
+
+  requestPair(identity: unknown): Promise<void> {
+    if (typeof identity !== 'string' || !/^[0-9a-f]{64}$/.test(identity)) {
+      throw new Error('Enter the relay ID of the other device: 64 characters from 0 to 9 and a to f.')
+    }
+    return this.requireConnection().reducers.requestPair({ peer: Identity.fromString(identity) })
+  }
+
+  // The user confirms the code on the screen. A different current code means that the keys changed after display.
+  confirmPair(input: unknown): Promise<void> {
+    return this.serialize(async () => {
+      const { pairId, code } = requireConfirmation(input)
+      const peer = this.requirePeer(pairId)
+      const current = describePeer(peer, await this.deviceCard(), this.cache.identity, this.pins)
+      if (!current.code || current.code !== code) throw new Error('The pairing code changed. Compare the new code on both devices.')
+      if (!current.requestedByMe && peer.status === 'Pending') {
+        await this.requireConnection().reducers.confirmPair({ pairId: BigInt(pairId) })
+      }
+      await this.savePins([...this.pins.filter((pin) => pin.identity !== peer.identity),
+        { identity: peer.identity, encryptionKey: peer.encryptionPublicKey, signingKey: peer.signingPublicKey }])
+    })
+  }
+
+  removePair(pairId: unknown): Promise<void> {
+    return this.serialize(async () => {
+      const peer = this.requirePeer(requirePairId(pairId))
+      await this.requireConnection().reducers.removePair({ pairId: BigInt(peer.pairId) })
+      await this.savePins(this.pins.filter((pin) => pin.identity !== peer.identity))
+    })
   }
 
   private async connect(): Promise<void> {
@@ -157,6 +210,7 @@ export class Relay {
       peers: [...connection.db.myPeers.iter()].map((row) => ({
         pairId: row.pairId.toString(),
         identity: row.identity.toHexString(),
+        initiator: row.initiator.toHexString(),
         name: row.name,
         status: row.status.tag,
         encryptionPublicKey: Buffer.from(row.encryptionPublicKey).toString('base64'),
@@ -176,7 +230,7 @@ export class Relay {
         receivedAt: row.receivedAt?.toISOString() ?? null
       }))
     }
-    this.saving = this.saving.then(() => this.writeCache(this.cache)).catch((error: unknown) => {
+    this.saving = this.saving.then(() => this.writeSealed('cache', this.cache)).catch((error: unknown) => {
       this.error = `Cannot save the relay cache. ${message(error)}`
     })
     this.changed()
@@ -196,34 +250,57 @@ export class Relay {
     this.changed()
   }
 
+  private requireConnection(): DbConnection {
+    if (this.status !== 'connected' || !this.connection) throw new Error('Connect to the relay first. Check your network connection and try again.')
+    return this.connection
+  }
+
+  private requirePeer(pairId: string): CachedPeer {
+    const peer = this.cache.peers.find((saved) => saved.pairId === pairId)
+    if (!peer) throw new Error('This pair does not exist. Refresh the list and try again.')
+    return peer
+  }
+
+  private async savePins(pins: Pin[]): Promise<void> {
+    await this.writeSealed('peers', { pins })
+    this.pins = pins
+    this.changed()
+  }
+
   private async readToken(): Promise<string | undefined> {
     return (await this.entry(`token/${this.serverName()}`).getPassword()) ?? undefined
   }
 
-  // The cache only copies relay rows. An unreadable cache starts empty, and the next subscription fills it again.
-  private async readCache(): Promise<Cache> {
+  // An unreadable file returns the empty value. The cache refills from the next subscription.
+  private async readSealed<T>(name: 'cache' | 'peers', empty: T): Promise<T> {
     try {
-      const sealed = decodeFile(magic, await readFile(this.cacheFile))
-      const key = await this.entry(`cache/${this.serverName()}`).getSecret()
-      if (!sealed || !key) return emptyCache
-      return JSON.parse(open(Buffer.from(key), sealed, this.cacheData()).toString('utf8')) as Cache
+      const sealed = decodeFile(magic, await readFile(this.sealedFile(name)))
+      const key = await this.entry(`${name}/${this.serverName()}`).getSecret()
+      if (!sealed || !key) return empty
+      // GCM authenticates the contents, so only this app can produce them.
+      return JSON.parse(open(Buffer.from(key), sealed, this.sealedData(name)).toString('utf8')) as T
     } catch {
-      return emptyCache
+      return empty
     }
   }
 
-  private async writeCache(cache: Cache): Promise<void> {
-    const saved = await this.entry(`cache/${this.serverName()}`).getSecret()
+  private async writeSealed(name: 'cache' | 'peers', value: unknown): Promise<void> {
+    const saved = await this.entry(`${name}/${this.serverName()}`).getSecret()
     const key = saved ? Buffer.from(saved) : randomBytes(32)
-    if (!saved) await this.entry(`cache/${this.serverName()}`).setSecret(key)
-    await mkdir(dirname(this.cacheFile), { recursive: true, mode: 0o700 })
-    await writeFile(`${this.cacheFile}.tmp`, encodeFile(magic, seal(key, Buffer.from(JSON.stringify(cache)), this.cacheData())), { mode: 0o600 })
-    await rename(`${this.cacheFile}.tmp`, this.cacheFile)
+    if (!saved) await this.entry(`${name}/${this.serverName()}`).setSecret(key)
+    const file = this.sealedFile(name)
+    await mkdir(this.directory, { recursive: true, mode: 0o700 })
+    await writeFile(`${file}.tmp`, encodeFile(magic, seal(key, Buffer.from(JSON.stringify(value)), this.sealedData(name))), { mode: 0o600 })
+    await rename(`${file}.tmp`, file)
   }
 
-  // Each relay server has its own identity. The cache of one server does not open for another server.
-  private cacheData(): Buffer {
-    return Buffer.from(`relay-cache/${this.serverName()}`)
+  // Each relay server has its own identity, so each server has its own files. A test server cannot replace the files of the live relay.
+  private sealedFile(name: 'cache' | 'peers'): string {
+    return join(this.directory, `${name}-${createHash('sha256').update(this.serverName()).digest('hex').slice(0, 16)}.sct`)
+  }
+
+  private sealedData(name: 'cache' | 'peers'): Buffer {
+    return Buffer.from(`relay-${name}/${this.serverName()}`)
   }
 
   private serverName(): string {
@@ -234,6 +311,49 @@ export class Relay {
   private entry(account: string): AsyncEntry {
     return new AsyncEntry(this.service, account)
   }
+
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.pending.then(operation)
+    this.pending = result.then(() => undefined, () => undefined)
+    return result
+  }
+}
+
+function describePeer(peer: CachedPeer, local: DeviceCard | undefined, localIdentity: string | null, pins: Pin[]): RelayPeer {
+  const card = peerCard(peer)
+  const pin = pins.find((saved) => saved.identity === peer.identity)
+  return {
+    pairId: peer.pairId,
+    identity: peer.identity,
+    name: peer.name,
+    status: peer.status,
+    requestedByMe: peer.initiator === localIdentity,
+    code: card && local && localIdentity ? relayPairingCode(local, localIdentity, card, peer.identity) : null,
+    trust: !card ? 'invalid' : !pin ? 'unverified'
+      : pin.encryptionKey === card.encryptionKey && pin.signingKey === card.signingKey ? 'verified' : 'changed'
+  }
+}
+
+// The relay accepts any key bytes. The device card rules accept only X25519 and Ed25519 public keys.
+function peerCard(peer: CachedPeer): DeviceCard | undefined {
+  try {
+    return readDeviceCard(Buffer.from(JSON.stringify({ format: 'sct-device', version: 1, name: peer.name,
+      encryptionKey: peer.encryptionPublicKey, signingKey: peer.signingPublicKey })))
+  } catch {
+    return undefined
+  }
+}
+
+function requireConfirmation(input: unknown): { pairId: string; code: string } {
+  if (typeof input !== 'object' || input === null || !('code' in input) || typeof input.code !== 'string' || !('pairId' in input)) {
+    throw new Error('Select a pair and its pairing code.')
+  }
+  return { pairId: requirePairId(input.pairId), code: input.code }
+}
+
+function requirePairId(pairId: unknown): string {
+  if (typeof pairId !== 'string' || !/^[0-9]{1,20}$/.test(pairId)) throw new Error('The pair ID is invalid.')
+  return pairId
 }
 
 function requireServer(server: RelayServer | undefined): RelayServer {

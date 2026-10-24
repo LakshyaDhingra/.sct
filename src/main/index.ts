@@ -122,11 +122,14 @@ app.whenReady().then(async () => {
   sharing = new Sharing(join(app.getPath('userData'), 'sharing'), vault, hostname().slice(0, 100))
   await sharing.cleanOutbox()
   const { Relay, relayServer } = await import('./relay-connection')
-  const relay = new Relay(relayServer(), join(app.getPath('userData'), 'relay', 'cache.sct'), sharing.deviceCard.bind(sharing),
+  const relay = new Relay(relayServer(), join(app.getPath('userData'), 'relay'), sharing.deviceCard.bind(sharing),
     () => mainWindow?.webContents.send('relay:changed'))
   await relay.start()
   app.on('will-quit', () => relay.stop())
   handle('relay:state', () => relay.state())
+  handle('relay:request-pair', (identity) => relay.requestPair(identity))
+  handle('relay:confirm-pair', (input) => relay.confirmPair(input))
+  handle('relay:remove-pair', (pairId) => relay.removePair(pairId))
   handle('projects:list', () => projects.list())
   handle('projects:add', (input) => vault.addProject(input))
   handle('projects:rename', (input) => vault.renameProject(input))
@@ -193,7 +196,7 @@ async function runAgentSession(): Promise<number> {
         relayState: async () => {
           relay ??= (async () => {
             const { Relay, relayServer } = await import('./relay-connection')
-            const service = new Relay(relayServer(), join(app.getPath('userData'), 'relay', 'cache.sct'),
+            const service = new Relay(relayServer(), join(app.getPath('userData'), 'relay'),
               async () => (await getSharing()).deviceCard(), () => undefined)
             await service.start()
             return service
