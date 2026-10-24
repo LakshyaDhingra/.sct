@@ -120,6 +120,7 @@ Local startup does not import a relay client.
 | `bun run typecheck` | TypeScript checks for Electron, React, shared contracts, and tests. |
 | `bun run typecheck:tsc` | Pinned official TypeScript compiler checks. |
 | `bun run lint` | ESLint checks. |
+| `bun run react-doctor` | React Doctor checks. |
 | `bun run test` | Persistence, input validation, duplicate folders, concurrent saves, and invalid saved data. |
 | `bun run build` | TypeScript checks and builds for main, preload, and renderer. |
 | `bun run package:mac` | Build and sign a local macOS application with the persistent Keychain identity. |

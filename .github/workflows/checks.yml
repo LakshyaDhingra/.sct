@@ -52,10 +52,5 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      - uses: millionco/react-doctor@main
-        with:
-          scope: full
-          blocking: error
-          comment: 'false'
-          review-comments: 'false'
-          commit-status: 'false'
+      - name: React Doctor
+        run: bun run react-doctor
