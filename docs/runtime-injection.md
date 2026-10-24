@@ -3,6 +3,7 @@
 .sct supplies registered project secrets without `.env` files or project-local secret manifests.
 The CLI and SDK work offline. They require no relay, MCP server, or agent.
 The signed Electron main process owns Keychain access and decryption in both paths.
+See [local agent entrypoints and demo](agent-access.md) for the separate agent and MCP build outputs.
 
 ## Set up once
 

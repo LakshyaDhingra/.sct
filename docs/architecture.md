@@ -97,6 +97,7 @@ No step launches a process or requires an agent.
 ## Standalone Agent Access
 
 Reuse #32 for local project resolution and environment injection.
+See [local agent entrypoints and demo](agent-access.md) for build commands and the current entrypoint scope.
 Issues #5, #7, #4, #18, #8, #9, and #10 add local requests, approval, execution, and MCP.
 Their contracts contain no relay identities, paired recipients, or wire envelopes.
 Issue #18 enforces local project access before #8 launches the fixed approved task.
