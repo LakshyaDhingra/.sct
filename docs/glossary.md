@@ -119,15 +119,24 @@ Both users compare a code derived from their device keys. Each device pins the v
 
 A value that authenticates the sender and signed envelope fields. The recipient checks it using the pinned sender key.
 
+## Admin
+
+The user who publishes a secret. Any user can be the admin of a secret that they publish.
+
 ## Encrypted handoff
 
-A signed envelope for one recipient.
+A signed envelope for one or more recipients.
 Phase 2 encrypts secrets, grants, and delivery acknowledgments.
 Integration issue #33 adds encrypted tasks and execution results.
 
 ## Encrypted grant
 
 A handoff payload that contains a credential and local access restrictions. Only the intended recipient decrypts it.
+
+## Message key
+
+A new random key that encrypts the payload of one message.
+The sender encrypts the message key separately for each recipient. The encrypted copy is the wrapped key.
 
 ## Message ID
 

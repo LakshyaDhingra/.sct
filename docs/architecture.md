@@ -36,6 +36,12 @@ Devices retain local vaults, cached activity, pending ciphertext, and durable de
 SpacetimeDB stores ciphertext and minimal routing metadata.
 Neither device requires a local SpacetimeDB server or a separate application daemon.
 
+The admin is the user who publishes a secret. Any user can be the admin of a secret that they publish.
+An admin can send one secret to one or more paired recipients. The demo shows one recipient.
+The admin's app encrypts the secret one time with a new message key.
+Then it encrypts the message key separately for each recipient.
+SpacetimeDB keeps a separate delivery status for each recipient.
+
 ```mermaid
 flowchart LR
   subgraph A[Sender device]
@@ -69,10 +75,10 @@ sequenceDiagram
   participant R as Recipient Electron app
   actor RUser as Recipient user
   Note over S,R: Users compare pairing codes and pin verified device keys
-  SUser->>S: Select local secret, verified recipient, and deadlines
-  S->>S: Read locally, assign ID, encrypt, sign, persist outbound ciphertext
+  SUser->>S: Select local secret, verified recipients, and deadlines
+  S->>S: Read locally, assign ID, encrypt, wrap key for each recipient, sign, persist outbound ciphertext
   S->>DB: Publish ciphertext over TLS
-  DB->>DB: Authorize sender and pair, check deadline, persist message
+  DB->>DB: Authorize sender and each pair, check deadline, persist message and deliveries
   Note over DB,R: Retain pending ciphertext until acknowledgment or delivery expiry
   R->>DB: Connect or reconnect with authorized subscription
   DB-->>R: Deliver pending unexpired ciphertext
@@ -81,7 +87,7 @@ sequenceDiagram
   R->>RUser: Notify user and show received metadata
   R->>DB: Publish encrypted correlated acknowledgment
   DB-->>S: Deliver acknowledgment when sender connects
-  S->>SUser: Show confirmed receipt
+  S->>SUser: Show confirmed receipt for each recipient
   Note over S,R: Retries reuse IDs and cannot repeat secret import
 ```
 
@@ -115,7 +121,8 @@ Issue #11 defines the schema and communication contract.
 Issue #16 defines shared transfer and acknowledgment types.
 Use shared TypeScript types where the relay and clients require the same contract.
 
-Each envelope carries an ID, sender, recipient, kind, correlation ID, delivery deadline, nonce, signature, and ciphertext.
+Each envelope carries an ID, sender, kind, correlation ID, delivery deadline, nonce, signature, and ciphertext.
+It also carries one wrapped message key for each recipient.
 Keep secrets, grant contents, and descriptive secret names inside ciphertext.
 Authenticate routing fields with the ciphertext.
 The planned device keys use X25519 for encryption and Ed25519 for signatures.
@@ -132,6 +139,46 @@ An acknowledgment must come from the expected recipient.
 Use private tables with authorized views, or equivalent server enforcement.
 Client subscription filters alone do not enforce authorization.
 Check delivery deadlines against server time.
+
+## Relay schema
+
+Issue #11 defines this first version of the relay schema.
+The relay does not read the encrypted bytes. Issue #16 defines the contents of `payload` and `wrappedKey`.
+
+All tables are private. Clients read data only through the views.
+
+| Table | Columns | Purpose |
+|---|---|---|
+| `device` | `identity` (primary key), `name`, `encryptionPublicKey`, `signingPublicKey`, `registeredAt` | One row for each app installation |
+| `pair` | `id` (primary key), `initiator`, `peer`, `status` (`Pending` or `Verified`) | Two devices that can share secrets |
+| `message` | `id` (primary key, set by the sender), `sender`, `payload`, `createdAt` | One row for each published secret |
+| `delivery` | `id` (primary key), `messageId`, `recipient`, `wrappedKey`, `status` (`Pending` or `Received`), `receivedAt` | One row for each recipient of a message |
+
+| Reducer | Behavior |
+|---|---|
+| `registerDevice(name, encryptionPublicKey, signingPublicKey)` | Creates the `device` row of the caller, or changes its name. It rejects changed keys, because paired devices trust the registered keys. A key change needs a new identity and a new pairing. |
+| `requestPair(peer)` | Creates a `Pending` pair from the caller to the peer. It rejects the request if either device has no `device` row, the peer is the caller, or the two devices already have a pair. |
+| `confirmPair(pairId)` | Sets the pair to `Verified`. Only the peer of the pair can call it. |
+| `publishSecret(id, payload, recipients)` | Each recipient entry contains a `recipient` identity and a `wrappedKey`. The reducer rejects the request if the caller has no `device` row, the list is empty, a recipient occurs more than one time, a recipient has no `Verified` pair with the caller, or the ID is already used. It saves the `message` row and one `Pending` `delivery` row for each recipient in one transaction. |
+| `acknowledge(messageId)` | Sets `Received` and `receivedAt` on the `delivery` row of the caller for that message. It rejects the request if the caller has no `delivery` row for the message. A second call changes nothing. |
+
+| View | Rows |
+|---|---|
+| `my_inbox` | The `Pending` deliveries of the caller, each with the `payload` of its message and the `wrappedKey` of the caller |
+| `my_sent` | For each message from the caller, one row for each recipient with `status` and `receivedAt` |
+| `my_peers` | For each pair of the caller, the pair ID, the pair status, and the `device` row of the other device |
+
+The relay takes `sender` from the authenticated caller. It sets `createdAt` and `receivedAt` from server time.
+A delivery row leaves `my_inbox` after `acknowledge`. The recipient app keeps its own local record.
+The recipient app protects the secret locally before it calls `acknowledge`.
+A third identity sees no rows of another pair.
+
+Issue #11 defines the `pair` table and the pair reducers.
+Issue #15 adds the pairing code check in the app. Both users compare the code before the peer calls `confirmPair`.
+This first version does not contain signatures, deadlines, or retries. Issues #16, #19, and #17 add them.
+A reused message ID always fails. Issue #17 adds retries that reuse the original ID.
+Until #19 adds deadlines, messages and delivery rows stay on the relay.
+The first version records receipt with the `acknowledge` reducer. Issue #16 adds the encrypted, authenticated acknowledgment.
 
 ## Phase 2 delivery and expiry rules
 
