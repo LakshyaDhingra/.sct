@@ -70,24 +70,31 @@ Issue #33 later connects remote delivery to this local execution path.
 
 ## Storage and security
 
-The Electron main process owns vault access, encryption, relay connections, and process launch.
-The React renderer uses a narrow preload bridge. It clears entered secret values after submission and never receives stored values.
-.sct has no separate application daemon.
+The Electron main process owns vault access, encryption, relay connections, and local cleanup.
+Phase 3 adds approved process launch.
+The React renderer uses a narrow preload bridge.
+It clears entered values after submission and never receives stored values.
 
-The relay stores ciphertext and minimal routing metadata.
-Plaintext secrets, tasks, execution output, and private keys stay off the relay.
-TLS protects connections. Server-side authorization restricts reads, subscriptions, and writes to authenticated message participants.
-Users verify device keys during pairing. A relay identity alone does not establish trust in a device key.
+The planned relay stores ciphertext and minimal routing metadata.
+Plaintext secrets and private keys stay outside relay rows and logs.
+TLS protects connections.
+Server-side authorization restricts reads, subscriptions, and writes to authenticated message participants.
+Users verify device keys during pairing.
+A relay identity alone does not establish trust in a device key.
 
-Persisted messages support offline delivery until their delivery deadline. Retries reuse the same message ID.
-Durable execution records prevent duplicate deliveries from automatically launching a task again.
-An uncertain outcome after a crash requires local review.
+Persisted ciphertext supports offline delivery until its deadline.
+Retries reuse the same message ID.
+Durable receipt records prevent duplicate secret imports.
+Integration issue #33 adds durable execution records and local review for uncertain remote crash outcomes.
 
-Local vault access remains available offline. Cross-device delivery, acknowledgments, and results require the relay.
-The UI shows cached status and queued work during outages.
-Message expiry prevents later delivery or execution of that message. It does not revoke credentials already delivered.
-Grant expiry separately blocks future local use and removes local grant material when cleanup runs.
-Copied credentials and running processes can retain secret values.
+Local vault access remains available offline.
+Cross-device delivery and acknowledgments require the relay.
+The UI identifies cached status and queued work during outages.
+Message expiry blocks later delivery and import.
+It does not revoke credentials already delivered.
+Grant expiry separately blocks new local access and removes local grant material when cleanup runs.
+External copies can retain credentials.
+Running processes can retain injected values after grant expiry.
 
 See [architecture and implementation order](docs/architecture.md) and the [technical glossary](docs/glossary.md).
 
@@ -196,7 +203,10 @@ These checks apply to implementation:
 - Run [React Doctor](https://www.react.doctor) in GitHub Actions.
 - Run `bun run check` and `bun run typecheck:tsc` before merging.
 - Check that the React frontend and Electron application compile.
-- Add automated UI tests after the foundation screens work. Ask Claude to independently run UI tests before merging or the final push.
-- Test encryption, storage, relay authorization, retries, expiry, duplicate execution, and offline behavior in CI.
+- Run existing Playwright UI checks and React Doctor after each UI change.
+- Obtain approval before adding new tests, as required by AGENTS.md.
+- Check encryption, storage, relay authorization, retries, expiry, duplicate imports, and offline behavior during Phase 2.
+- Check local agent approval and execution independently under #10.
+- Check duplicate remote execution, crash recovery, and encrypted result return during integration under #33.
 - Document architecture, conventions, test commands, and agent instructions in AGENTS.md.
 

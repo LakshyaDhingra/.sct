@@ -87,7 +87,9 @@ Hardened Runtime stays enabled. The build grants `com.apple.security.cs.disable-
 Without this entitlement, macOS rejects Electron's bundled framework at launch.
 This entitlement also permits libraries without a matching Team ID. Use this signing configuration for local development only.
 The build still signs and verifies the app and its nested binaries.
-Ticket #2 separately checks actual Keychain access after a signed rebuild on both demo Macs.
+Phase 1 issue [1.5, #2](https://github.com/omavashia2005/.sct/issues/2) covers Keychain access after a signed rebuild on both demo Macs.
+The [implementation order](architecture.md#implementation-order) keeps relay sharing and local Agent Access independent until integration.
+Signing requires no CLI, MCP server, or agent.
 CI continues to check the application without a developer's private signing key.
 
 See [Apple's certificate instructions](https://support.apple.com/guide/keychain-access/create-self-signed-certificates-kyca8916/mac)

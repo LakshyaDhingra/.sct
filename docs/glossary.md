@@ -113,7 +113,9 @@ A value that authenticates the sender and signed envelope fields. The recipient 
 
 ## Encrypted handoff
 
-A signed envelope for one recipient. Its ciphertext contains a secret, task, grant, acknowledgment, or result.
+A signed envelope for one recipient.
+Phase 2 encrypts secrets, grants, and delivery acknowledgments.
+Integration issue #33 adds encrypted tasks and execution results.
 
 ## Encrypted grant
 
@@ -121,7 +123,9 @@ A handoff payload that contains a credential and local access restrictions. Only
 
 ## Message ID
 
-A stable identifier reused across retries. Duplicate IDs cannot trigger another automatic execution.
+A stable identifier reused across retries.
+Phase 2 uses durable receipt records to prevent duplicate secret imports.
+Integration issue #33 also uses execution records to prevent repeated automatic execution.
 
 ## Correlation ID
 
@@ -172,7 +176,9 @@ A metadata record of submission, receipt, approval, execution, or expiry. It con
 
 ## Replay attack
 
-Repeated delivery of an old message. Deadline checks and durable duplicate records prevent automatic execution of the repeated request.
+Repeated delivery of an old message.
+Deadline checks and durable receipt records prevent repeated secret import.
+Integration issue #33 adds execution records to prevent repeated automatic execution.
 
 ## Redaction
 

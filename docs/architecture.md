@@ -8,84 +8,10 @@ The relay and local Agent Access branches then proceed independently.
 Only integration issue #33 requires both branches.
 See [runtime injection](runtime-injection.md) for project resolution and loader compatibility.
 
-
 .sct uses Electron, React, and TypeScript. The Electron main process owns sensitive operations on each device.
 Cloud-hosted SpacetimeDB persists encrypted handoffs and exposes authorized subscriptions.
 Devices retain local vaults, cached activity, pending messages, and durable execution records.
 Separate local SpacetimeDB servers are no longer required.
-
-The following diagram shows the planned integrated flow in #33.
-Standalone sharing starts at the React UI and uses no agent or CLI submission.
-Standalone Agent Access uses the local vault and runner without relay connections.
-
-```mermaid
-flowchart LR
-  subgraph A[Sender device]
-    SA[Local agent] --> CLI[TypeScript CLI]
-    CLI -->|authenticated local request| SM[Electron main process]
-    SU[React UI] <-->|preload IPC| SM
-    SM <--> SK[(Local vault and Keychain)]
-    SM <--> SL[(Local queue and activity cache)]
-  end
-  SM -->|TLS: signed encrypted message| AUTH
-  subgraph C[Cloud-hosted SpacetimeDB]
-    AUTH[Identity and authorization checks] --> DB[(Persisted ciphertext and routing metadata)]
-    DB --> SUB[Authorized subscriptions]
-  end
-  SUB -->|TLS: recipient messages| RM
-  subgraph B[Recipient device]
-    RM[Electron main process] <--> RK[(Local vault and Keychain)]
-    RM <--> RL[(Execution records and activity cache)]
-    RM -->|notification and approval request| RU[React UI]
-    RU -->|local approval| RM
-    RM -->|approved task and credential injection| RA[Local agent process]
-    RA -->|result| RM
-  end
-  RM -->|TLS: encrypted acknowledgment or result| AUTH
-  SUB -->|TLS: sender messages| SM
-```
-
-## Integrated handoff sequence
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant A as Sender agent
-  participant C as Sender CLI
-  participant S as Sender Electron app
-  participant DB as Cloud SpacetimeDB
-  participant R as Recipient Electron app
-  actor U as Recipient user
-  participant P as Approved local agent
-  Note over S,R: Users verify pairing codes and pin device keys before sharing
-  A->>C: Submit secret or task for paired device
-  C->>S: Validated local request, secret input through stdin
-  S->>S: Assign ID and deadlines, encrypt and sign
-  S->>DB: Publish ciphertext over TLS
-  DB->>DB: Authorize sender and pair, persist message
-  Note over DB,R: Persist while recipient is offline, until delivery expiry
-  R->>DB: Connect or reconnect, subscribe to authorized messages
-  DB-->>R: Deliver pending unexpired ciphertext
-  R->>R: Check signature, recipient, deadlines, and message ID
-  R->>R: Decrypt locally and durably record receipt
-  R->>DB: Publish encrypted delivery acknowledgment
-  DB-->>S: Deliver acknowledgment through sender subscription
-  R->>U: Notify user and request local execution approval
-  alt User approves and grant remains valid
-    U->>R: Approve fixed local task
-    R->>R: Persist execution claim before launch
-    R->>P: Launch approved agent with local credential injection
-    P-->>R: Execution result
-    R->>R: Persist outcome, redact output, encrypt result
-    R->>DB: Publish correlated result
-    DB-->>S: Deliver authorized encrypted result
-    S->>S: Decrypt result and update activity
-  else User denies or deadline passes
-    R->>DB: Publish encrypted refusal or expiry status
-    DB-->>S: Deliver status when sender reconnects
-  end
-  Note over S,R: Retries reuse IDs, duplicate delivery never automatically repeats execution
-```
 
 ## Local runtime injection
 
@@ -96,19 +22,65 @@ The project folder needs no .env, replacement secret file, .sct manifest, symlin
 Local launches work offline and do not depend on agent or relay issues.
 The launched program and its descendants can read or copy their environment.
 
-## Standalone secret sharing
+## Phase 2 architecture
 
-1. Both users verify their device keys in the app.
-2. The sender selects a local secret, verified recipient, and deadlines.
-3. The sender encrypts, signs, and persists outbound ciphertext locally.
-4. The relay authorizes and persists the transfer.
-5. The recipient validates and imports the secret, then persists receipt.
-6. An encrypted acknowledgment returns and both apps show delivery status.
+The Electron main process owns vault access, device keys, encryption, relay connections, and local grant cleanup.
+The renderer uses a narrow preload bridge and receives metadata only.
+Devices retain local vaults, cached activity, pending ciphertext, and durable delivery records.
+SpacetimeDB stores ciphertext and minimal routing metadata.
+Neither device requires a local SpacetimeDB server or a separate application daemon.
 
-Use durable receipt records to prevent duplicate secret imports.
-Enforce received grant restrictions and expiry during import and local cleanup.
-No sharing step requires an agent, MCP, or agent approval.
-Build the sharing UI with delivery under #14 and #17.
+```mermaid
+flowchart LR
+  subgraph A[Sender device]
+    SU[Sharing UI] <-->|validated preload IPC| SM[Electron main process]
+    SM <--> SK[(Local vault and Keychain)]
+    SM <--> SQ[(Pending ciphertext and activity)]
+  end
+  SM -->|TLS: signed encrypted transfer| AUTH
+  subgraph C[Cloud-hosted SpacetimeDB]
+    AUTH[Identity and authorization checks] --> DB[(Ciphertext and routing metadata)]
+    DB --> SUB[Authorized subscriptions]
+  end
+  SUB -->|TLS: recipient messages| RM
+  subgraph B[Recipient device]
+    RM[Electron main process] <--> RK[(Local vault and Keychain)]
+    RM <--> RQ[(Delivery records and activity)]
+    RM <-->|metadata and notification| RU[Sharing UI]
+  end
+  RM -->|TLS: encrypted acknowledgment| AUTH
+  SUB -->|TLS: sender messages| SM
+```
+
+## Phase 2 sharing sequence
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor SUser as Sender user
+  participant S as Sender Electron app
+  participant DB as Cloud SpacetimeDB
+  participant R as Recipient Electron app
+  actor RUser as Recipient user
+  Note over S,R: Users compare pairing codes and pin verified device keys
+  SUser->>S: Select local secret, verified recipient, and deadlines
+  S->>S: Read locally, assign ID, encrypt, sign, persist outbound ciphertext
+  S->>DB: Publish ciphertext over TLS
+  DB->>DB: Authorize sender and pair, check deadline, persist message
+  Note over DB,R: Retain pending ciphertext until acknowledgment or delivery expiry
+  R->>DB: Connect or reconnect with authorized subscription
+  DB-->>R: Deliver pending unexpired ciphertext
+  R->>R: Check signature, recipient, grant, deadlines, and duplicate ID
+  R->>R: Decrypt locally, protect imported secret, persist receipt
+  R->>RUser: Notify user and show received metadata
+  R->>DB: Publish encrypted correlated acknowledgment
+  DB-->>S: Deliver acknowledgment when sender connects
+  S->>SUser: Show confirmed receipt
+  Note over S,R: Retries reuse IDs and cannot repeat secret import
+```
+
+Receipt confirms durable delivery. It does not confirm execution.
+No step launches a process or requires an agent.
 
 ## Standalone Agent Access
 
@@ -119,61 +91,113 @@ Issue #18 enforces local project access before #8 launches the fixed approved ta
 Issue #33 later maps remote tasks and received grants onto this local path.
 Claude Code's own model service can require internet access independently of the relay.
 
+Issue #8 provides local approval and execution states where needed.
+Issue #9 exposes list_secrets, describe_secret, and run_demo only.
+Issue #10 checks local Claude integration, refusal, deadlines, and reused approvals.
+Keep plaintext values outside command arguments, logs, renderer responses, and MCP results.
+
 ## Storage and authorization
 
-The local vault keeps credential values and private keys under Keychain protection.
-Any local secret files contain ciphertext only. Grant cleanup removes applicable Keychain entries and encrypted files.
-The renderer receives metadata and approval prompts. It clears entered secret values after the initial save request.
-The agent CLI submits secrets through stdin or a local vault reference. Secret input must not enter process arguments or logs.
+The local vault keeps encrypted project files and protects their keys in macOS Keychain.
+Device private keys and relay client tokens stay under local Keychain protection.
+The renderer never receives stored secret values, private keys, or relay tokens.
+It clears entered values after submission.
+Relay deployment credentials stay outside Git and desktop builds.
 
-The TypeScript relay module defines device identities, verified pair bindings, message envelopes, grants, and delivery status.
-Standalone sharing uses secret transfers and acknowledgments.
-Issue #33 extends those contracts for tasks and execution results.
+The TypeScript relay module defines authenticated devices, verified pairs, encrypted envelopes, grants, and delivery status.
+Issue #11 defines the schema and communication contract.
+Issue #16 defines shared transfer and acknowledgment types.
+Use shared TypeScript types where the relay and clients require the same contract.
+
 Each envelope carries an ID, sender, recipient, kind, correlation ID, delivery deadline, nonce, signature, and ciphertext.
-Task contents, secrets, and execution output stay inside ciphertext. Avoid descriptive secret names in routing metadata.
-Private keys remain on devices. Relay deployment credentials stay outside desktop builds.
+Keep secrets, grant contents, and descriptive secret names inside ciphertext.
+Authenticate routing fields with the ciphertext.
+The planned device keys use X25519 for encryption and Ed25519 for signatures.
 
-Use TLS for all relay connections. Bind each device to an authenticated relay identity.
-Require verified pairing before accepting a handoff. Check that the claimed sender matches the authenticated caller.
-Authorize reads, subscriptions, and status changes. An acknowledgment or result must come from the expected recipient.
-Use private tables with authorized views, or equivalent server-enforced restrictions.
+Use TLS for every relay connection.
+Bind each device to an authenticated relay identity.
+Both users verify device keys before sharing.
+A relay identity alone does not establish trust in a public key.
+Require new verification after a peer key changes.
+
+Check that the claimed sender matches the authenticated caller.
+Authorize pair registration, publication, reads, subscriptions, and status changes.
+An acknowledgment must come from the expected recipient.
+Use private tables with authorized views, or equivalent server enforcement.
 Client subscription filters alone do not enforce authorization.
-Check delivery deadlines against server time. Authenticate routing fields together with the ciphertext.
+Check delivery deadlines against server time.
 
-## Delivery and execution rules
+## Phase 2 delivery and expiry rules
 
-Rules 1–4 apply to sharing.
-Rules 5–8 describe the integrated remote execution in #33.
-Standalone local agents do not wait for relay delivery.
+1. Persist outbound ciphertext locally before publication.
+2. Persist accepted ciphertext on the relay before confirming publication.
+3. Restore authorized subscriptions and pending delivery after reconnect.
+4. Retry with bounded backoff and the original message ID.
+5. Reject an ID reused with different contents.
+6. Check the signature, verified sender, recipient, grant, and deadlines before local import.
+7. Protect the received secret locally and persist receipt before sending an acknowledgment.
+8. Return existing receipt status for duplicate delivery without another secret import.
+9. Persist acknowledgments for offline senders.
+10. Retain duplicate-delivery records through the replay window.
 
+Give transfers, acknowledgments, and status replies explicit retention deadlines.
+Never retry expired ciphertext under a new ID without a new user submission.
+The sharing UI distinguishes queued, sent, received, failed, and expired states.
+Issue #14 defines the controls and activity view.
+Issue #17 connects those controls to actual relay delivery.
+Issue #14 does not depend on #17.
+Issue #20 checks the connected flow.
 
-1. Persist outbound ciphertext locally before publication. The relay persists accepted ciphertext before confirming submission.
-2. Replay pending messages through subscriptions after reconnect. Keep eligible data until acknowledgment or delivery expiry.
-3. Retry with bounded backoff and the original message ID. Reject an ID reused with different contents.
-4. Persist receipt before sending a delivery acknowledgment. Receipt confirms delivery, not execution success.
-5. Check deadlines and grant permissions immediately before execution. Require recipient approval for the fixed task.
-6. Persist an execution claim before process launch. Persist outcomes and queue return messages for retry.
-7. Treat a claim without a durable outcome as uncertain after a crash. Require local review before another launch.
-8. Retain duplicate-protection records through the replay window. Do not promise exactly-once execution of arbitrary process side effects.
+Delivery expiry blocks later import of that message.
+It cannot revoke credentials already delivered.
+Grant expiry separately blocks new local access.
+Received injection-only grants deny reveal, copy, and reshare from the time of import.
+These restrictions belong to Phase 2 and do not depend on agent approval.
 
-Delivery, acknowledgment, and result messages each have explicit retention deadlines.
-Show expired status. Never retry an expired payload under a new ID without a new submission.
-Replies use authenticated encryption for the original sender and include the original correlation ID.
-Return only approved, redacted results. Do not relay unrestricted agent logs.
-
-Message expiry prevents later delivery or execution of that message. It cannot revoke credentials already delivered.
-Grant expiry separately blocks future vault access.
-Scheduled local checks remove expired grant material and queue an expiry notification for the sender.
-Run checks at startup, after resume, and before use.
-An app timer cannot delete files while the app is closed or the device is asleep.
-Cleanup removes expired material before new use. Running processes and external copies can retain credentials.
+Check grant expiry before import and access, at startup, after resume, and during scheduled cleanup.
+Remove expired recipient Keychain entries and applicable encrypted files.
+Persist cleanup outcomes and queue an encrypted expiry notification for the sender.
+Cleanup cannot run while the app is closed or the device is asleep.
+Cleanup must finish before new access after startup or resume.
+External copies can retain delivered credentials.
 
 ## Offline behavior
 
-Local vault operations and authorized local launches work without the relay.
-Persist pending submissions, replies, execution claims, grant deadlines, and activity locally.
-The UI distinguishes cached information from confirmed remote status.
-Cross-device delivery requires a relay connection. Local expiry checks never depend on a live subscription.
+Local vault operations remain available during relay outages.
+Persist pending transfers, replies, grant deadlines, delivery records, and cached activity locally.
+The UI identifies cached status separately from confirmed remote status.
+Cross-device delivery and acknowledgments require the relay.
+Local expiry checks do not depend on a live subscription.
+
+## Integration of sharing and Agent Access
+
+Issue #33 starts after secure sharing in #20 and local Agent Access in #10 pass.
+It extends #16 envelopes and #17 delivery for encrypted task requests, refusals, and execution results.
+The standalone local request contracts remain independent of relay identities and wire envelopes.
+
+Require local recipient approval tied to the task, grant, recipient, and message ID.
+Check the permitted operation, active grant, and deadline immediately before launch.
+A relay message or agent cannot approve its own execution.
+Reject arbitrary commands and reused approval responses.
+Reuse the approved local launch path from #8 and runtime injection from #32.
+
+Persist an execution claim before launch.
+Persist outcomes and encrypted, signed, correlated replies for offline senders.
+Return approved, redacted results only.
+Keep secrets, task contents, and execution output inside ciphertext.
+Do not relay unrestricted agent logs.
+
+Durable execution records prevent duplicate delivery from automatically repeating execution.
+A claim without a durable outcome after a crash requires local review before another launch.
+Retain execution records through the replay window.
+Do not promise exactly-once execution of arbitrary process side effects.
+An expired grant blocks new launches but cannot remove credentials from an already-running process.
+
+Add remote approval and execution states under #33.
+Keep receipt distinct from awaiting approval, running, completed, refused, expired, and uncertain execution.
+Check crash recovery, duplicate execution, and offline result return during integration.
+Local Agent Access remains usable without the relay.
+Basic sharing remains usable without an agent.
 
 ## Implementation order
 
@@ -258,6 +282,15 @@ Basic sharing remains independent of agents.
 
 Issue #30 is separate workflow maintenance.
 Issue #21 remains closed because demo rehearsal is outside development scope.
+
+## Checks
+
+Use existing checks during implementation.
+Run Playwright UI checks and React Doctor after each UI change.
+Run the repository lint and type checks.
+Follow AGENTS.md approval requirements before adding new tests.
+Check sharing independently in #20 and local Agent Access independently in #10.
+Check their integration in #33.
 
 ## Reference documentation
 
