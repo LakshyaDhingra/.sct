@@ -69,6 +69,13 @@ export interface AgentCaller {
   verified: boolean
 }
 
+export interface AgentResponse {
+  id: string
+  approved: boolean
+  comparedCode?: boolean
+  startedByMe?: boolean
+}
+
 export interface AgentRequestView {
   id: string
   operation: AgentOperation
@@ -84,6 +91,6 @@ export interface AgentRequestView {
 
 export interface AgentAPI {
   getAgentRequests: () => Promise<AgentRequestView[]>
-  respondToAgent: (input: { id: string; approved: boolean; comparedCode?: boolean }) => Promise<void>
+  respondToAgent: (input: AgentResponse) => Promise<void>
   onAgentChanged: (listener: () => void) => () => void
 }

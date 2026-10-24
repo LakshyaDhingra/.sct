@@ -84,12 +84,14 @@ export class AgentAccess {
   }
 
   async respond(input: unknown): Promise<void> {
-    const response = z.strictObject({ id: z.uuid(), approved: z.boolean(), comparedCode: z.boolean().optional() }).safeParse(input)
+    const response = z.strictObject({ id: z.uuid(), approved: z.boolean(), comparedCode: z.boolean().optional(),
+      startedByMe: z.boolean().optional() }).safeParse(input)
     if (!response.success) throw new Error('Supply a request ID and a local approval decision.')
     const request = this.requests.get(response.data.id)
     if (!request || request.view.status !== 'pending') throw new Error('This request is no longer awaiting approval.')
     if (!response.data.approved) return this.cancel(response.data.id, 'refused')
     if (request.view.pairing && !response.data.comparedCode) throw new Error('Compare the pairing code on both Macs before approval.')
+    if (!request.view.caller.verified && !response.data.startedByMe) throw new Error('Confirm that you started this request before approval.')
     requireActive(request)
     clearTimeout(request.timer)
     request.view.status = 'running'

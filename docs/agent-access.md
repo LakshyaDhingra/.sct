@@ -95,7 +95,8 @@ A shell tool usually starts `sct agent`, so the agent is a more distant ancestor
 - A listed agent that passes its check becomes a verified caller. The approval window shows its name.
 - A process with a listed agent name that fails the check is an impostor. .sct rejects each request before local approval.
   The result has status `failed` and names the failed signature check.
-- A caller with no listed agent among its ancestors is unverified. The request still requires local approval.
+- A caller with no listed agent among its ancestors is unverified. The approval window labels it as unverified.
+  Approval also requires the user to select **I started this request myself**.
 
 Caller authentication identifies the program. It does not replace local approval.
 A verified agent can still request an operation that the user must refuse.
