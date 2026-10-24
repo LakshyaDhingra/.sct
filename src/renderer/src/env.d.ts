@@ -1,4 +1,4 @@
-import type { SctAPI } from '../../shared/projects'
+import type { SctAPI } from '../../shared/api'
 
 declare global {
   interface Window {

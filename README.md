@@ -91,25 +91,47 @@ Enter a project name. Select **Add project** to save it.
 .sct saves project names and paths in `projects.json` under Electron's local `userData` directory.
 On macOS, this directory normally is `~/Library/Application Support/.sct`.
 .sct does not move, read, or change the selected folder's contents.
-Project names and paths remain available after restart. Credential storage and relay delivery are not implemented yet.
+Project names must be unique. .sct ignores letter case when it compares names.
+Project names and paths remain available after restart.
+Each project row has **Open secrets**, **Rename**, and **Delete**. To delete a project, type its name.
+
+### Manage secrets
+
+Select **Open secrets** on a project. Enter a name and a value, then select **Save secret**.
+Names use letters, digits, and underscores, and cannot start with a digit. A project cannot have two secrets with the same name.
+.sct clears the value field after each request. The window never shows a stored value.
+Select **Update value** to replace a value. Select **Delete** to remove a secret.
+Select **All secrets** to see the secret names of all projects.
+
+### Vault storage
+
+At startup, .sct creates the `.sct/` vault folder in your home folder (`~/.sct`).
+Each project has its own `.sct/[project-name]/` folder with one `secrets.sct` file.
+The file contains encrypted secret names and encrypted values. Each value has a different key.
+macOS Keychain keeps the file key and the value keys under the `.sct` service.
+To read a value, .sct needs the file and the Keychain keys.
+Select **Storage**, then **Change location…**, to move the vault folder to a different folder.
+.sct saves the location in `settings.json` in the `userData` directory. The Keychain keys stay in Keychain.
+Deleting a project removes its vault folder and its Keychain keys. Relay delivery is not implemented yet.
 
 ## Project structure
 
 | Path | Purpose |
 |---|---|
-| `src/main/` | Electron lifecycle, native folder picker, validated requests, and local project storage. |
-| `src/preload/` | Three explicit project operations exposed through `contextBridge`. |
-| `src/renderer/` | React window, form, project list, and styles. |
-| `src/shared/` | TypeScript contracts for project metadata and requests. |
-| `tests/` | Storage tests and an Electron UI test with network requests blocked. |
+| `src/main/` | Electron lifecycle, native folder picker, validated requests, local project storage, and the encrypted vault. |
+| `src/preload/` | Explicit project, secret, and storage operations exposed through `contextBridge`. |
+| `src/renderer/` | React window, project and secret views, storage settings, and styles. |
+| `src/shared/` | TypeScript contracts for the preload API, projects, and secret metadata. |
+| `tests/` | Storage and vault tests, and an Electron UI test with network requests blocked. |
 | `electron.vite.config.ts` | Main, preload, and renderer build configuration. |
 | `scripts/package-macos.ts` | Local macOS packaging, signing, and signature checks. |
 | `.github/workflows/checks.yml` | macOS checks and React Doctor. |
 | `out/` | Generated application files. Git ignores this directory. |
 
 The renderer uses context isolation and process sandboxing. It has no Node.js access.
-The main process checks each request's sender and validates project input before storage.
-The preload exposes only `listProjects`, `pickDirectory`, and `addProject`.
+The main process checks each request's sender and validates project and secret input before storage.
+The preload exposes only the operations in `src/shared/api.ts`. Responses contain secret metadata only, never a secret value.
+The main process selects the vault location through the native folder picker. The renderer does not send a storage path.
 Local startup does not import a relay client.
 
 ## Check the implementation
@@ -121,7 +143,7 @@ Local startup does not import a relay client.
 | `bun run typecheck:tsc` | Pinned official TypeScript compiler checks. |
 | `bun run lint` | ESLint checks. |
 | `bun run react-doctor` | React Doctor checks. |
-| `bun run test` | Persistence, input validation, duplicate folders, concurrent saves, and invalid saved data. |
+| `bun run test` | Persistence, input validation, duplicate folders, concurrent saves, invalid saved data, vault encryption, Keychain keys, and vault moves. |
 | `bun run build` | TypeScript checks and builds for main, preload, and renderer. |
 | `bun run package:mac` | Build and sign a local macOS application with the persistent Keychain identity. |
 | `bun run test:ui` | Build and test the actual Electron window on macOS. |
@@ -129,6 +151,8 @@ Local startup does not import a relay client.
 
 The UI test blocks HTTP and WebSocket requests before the window opens.
 It checks renderer isolation, folder selection, cancellation, invalid paths, duplicate folders, and persistence after restart.
+It also checks secret save, update, and delete, value clearing, project rename and delete, and a vault move.
+The vault tests and the UI test use real macOS Keychain. They remove their Keychain items when they pass.
 The test supplies folder-picker results automatically. It does not operate the native macOS dialog.
 GitHub Actions runs these checks and React Doctor on macOS.
 

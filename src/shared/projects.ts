@@ -9,10 +9,7 @@ export interface ProjectInput {
   directory: string
 }
 
-export interface SctAPI {
-  listProjects: () => Promise<Project[]>
-  pickDirectory: () => Promise<string | null>
-  addProject: (input: ProjectInput) => Promise<Project>
+export interface ProjectRename {
+  id: string
+  name: string
 }
-
-export type Reply<T> = { ok: true; value: T } | { ok: false; error: string }

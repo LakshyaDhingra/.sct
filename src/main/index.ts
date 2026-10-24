@@ -1,8 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
-import type { IpcMainInvokeEvent } from 'electron'
+import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { ProjectStore } from './projects'
-import type { Reply } from '../shared/projects'
+import { Vault } from './vault'
+import type { Reply } from '../shared/api'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -50,9 +52,15 @@ async function createWindow(): Promise<void> {
   }
 }
 
+async function pickDirectory(options: OpenDialogOptions): Promise<string | null> {
+  if (!mainWindow) throw new Error('The .sct window is unavailable.')
+  const result = await dialog.showOpenDialog(mainWindow, options)
+  return result.canceled ? null : result.filePaths[0] ?? null
+}
+
 function reportStartupError(error: unknown): void {
   console.error('.sct could not start.', error)
-  dialog.showErrorBox('.sct could not start', 'The application window could not load. Check the development terminal for details.')
+  dialog.showErrorBox('.sct could not start', error instanceof Error ? error.message : 'The application window could not load. Check the development terminal for details.')
   app.quit()
 }
 
@@ -60,16 +68,29 @@ app.setName('.sct')
 nativeTheme.themeSource = 'dark'
 app.whenReady().then(async () => {
   const projects = new ProjectStore(join(app.getPath('userData'), 'projects.json'))
+  const vault = new Vault(projects, join(app.getPath('userData'), 'settings.json'), homedir())
+  await vault.start()
   handle('projects:list', () => projects.list())
-  handle('projects:add', (input) => projects.add(input))
-  handle('projects:pick-directory', async () => {
-    if (!mainWindow) throw new Error('The .sct window is unavailable.')
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Add a project',
-      buttonLabel: 'Select folder',
-      properties: ['openDirectory']
+  handle('projects:add', (input) => vault.addProject(input))
+  handle('projects:rename', (input) => vault.renameProject(input))
+  handle('projects:delete', (id) => vault.deleteProject(id))
+  handle('projects:pick-directory', () => pickDirectory({
+    title: 'Add a project',
+    buttonLabel: 'Select folder',
+    properties: ['openDirectory']
+  }))
+  handle('secrets:list', () => vault.listSecrets())
+  handle('secrets:add', (input) => vault.addSecret(input))
+  handle('secrets:update', (input) => vault.updateSecret(input))
+  handle('secrets:delete', (input) => vault.deleteSecret(input))
+  handle('vault:location', () => vault.location())
+  handle('vault:choose-location', async () => {
+    const root = await pickDirectory({
+      title: 'Choose a storage location',
+      buttonLabel: 'Move vault here',
+      properties: ['openDirectory', 'createDirectory']
     })
-    return result.canceled ? null : result.filePaths[0] ?? null
+    return root ? vault.moveTo(root) : null
   })
   await createWindow()
   app.on('activate', () => {
