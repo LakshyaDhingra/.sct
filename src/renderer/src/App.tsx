@@ -7,12 +7,17 @@ import { ProjectSecretsView } from './ProjectSecretsView'
 import { ProjectsView } from './ProjectsView'
 import { StorageView } from './StorageView'
 import { SharingView } from './SharingView'
+import { AgentAccessView } from './AgentAccessView'
 import type { Loaded, SharingTab, UpdateProjects, UpdateSecrets } from './types'
 
-type Route = { view: 'projects' } | { view: 'project'; id: string } | { view: 'secrets' } | { view: 'storage' } | { view: 'sharing'; projectId?: string; tab?: SharingTab }
+type Route = { view: 'projects' } | { view: 'project'; id: string } | { view: 'secrets' } | { view: 'storage' } | { view: 'sharing'; projectId?: string; tab?: SharingTab } | { view: 'agent' }
 
 export function App() {
   const route = parseRoute(useSyncExternalStore(subscribeToHash, () => window.location.hash))
+  return route.view === 'agent' ? <AgentAccessView /> : <DesktopApp route={route} />
+}
+
+function DesktopApp({ route }: { route: Exclude<Route, { view: 'agent' }> }) {
   const [projects, setProjects] = useState<Loaded<Project[]>>({ state: 'loading' })
   const [secrets, setSecrets] = useState<Loaded<SecretMetadata[]>>({ state: 'loading' })
 
@@ -82,6 +87,7 @@ function parseRoute(hash: string): Route {
   if (view === 'projects' && id) return { view: 'project', id: decodeURIComponent(id) }
   if (view === 'secrets') return { view: 'secrets' }
   if (view === 'storage') return { view: 'storage' }
+  if (view === 'agent') return { view: 'agent' }
   if (view === 'sharing') {
     if (id === 'devices' || id === 'secrets') return { view: 'sharing', tab: id, projectId: projectId ? decodeURIComponent(projectId) : undefined }
     return { view: 'sharing', projectId: id ? decodeURIComponent(id) : undefined }
