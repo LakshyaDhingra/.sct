@@ -43,6 +43,20 @@ const [output] = await packager({
   name: 'sct',
   appBundleId: bundleId,
   appCategoryType: 'public.app-category.developer-tools',
+  extendInfo: {
+    CFBundleDocumentTypes: [{
+      CFBundleTypeName: '.sct encrypted transfer',
+      CFBundleTypeRole: 'Viewer',
+      LSHandlerRank: 'Owner',
+      LSItemContentTypes: ['com.omavashia2005.sct.transfer']
+    }],
+    UTExportedTypeDeclarations: [{
+      UTTypeIdentifier: 'com.omavashia2005.sct.transfer',
+      UTTypeDescription: '.sct encrypted transfer',
+      UTTypeConformsTo: ['public.data'],
+      UTTypeTagSpecification: { 'public.filename-extension': ['sct-transfer'] }
+    }]
+  },
   electronVersion: electron.version,
   platform: 'darwin',
   arch: process.arch,

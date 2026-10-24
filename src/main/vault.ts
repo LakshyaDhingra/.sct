@@ -6,6 +6,7 @@ import { isProjectName } from './projects.ts'
 import type { ProjectStore } from './projects.ts'
 import type { Project } from '../shared/projects.ts'
 import type { SecretMetadata } from '../shared/secrets.ts'
+import type { TransferSecret } from './transfer.ts'
 
 // secrets.sct layout: magic | IV | GCM tag | ciphertext. The ciphertext holds names and individually encrypted values.
 const magic = Buffer.from('SCT1')
@@ -20,6 +21,7 @@ interface StoredSecret {
   iv: string
   tag: string
   value: string
+  transferId?: string
 }
 
 interface Sealed {
@@ -170,6 +172,78 @@ export class Vault {
       } finally {
         value.fill(0)
       }
+    })
+  }
+
+  withSelectedSecrets<T>(projectId: unknown, ids: unknown,
+    use: (project: Project, secrets: { name: string; value: Buffer }[]) => T | Promise<T>): Promise<T> {
+    return this.serialize(async () => {
+      const selected = requireSecretIds(ids)
+      const project = await this.projects.find(projectId)
+      const stored = await this.readSecrets(project)
+      const values: { name: string; value: Buffer }[] = []
+      try {
+        const reads = await Promise.allSettled(selected.map(async (id) => {
+          const secret = requireSecret(stored, id)
+          return { name: secret.name, value: await this.decryptSecret(project, secret) }
+        }))
+        for (const read of reads) if (read.status === 'fulfilled') values.push(read.value)
+        for (const read of reads) if (read.status === 'rejected') throw read.reason
+        return await use(project, values)
+      } finally {
+        for (const secret of values) secret.value.fill(0)
+      }
+    })
+  }
+
+  // One encrypted file commit prevents a failed batch from leaving half the transfer in the vault.
+  importSecrets(projectId: unknown, input: readonly TransferSecret[], transferId: string,
+    beforeWrite: () => Promise<void>): Promise<SecretMetadata[]> {
+    return this.serialize(async () => {
+      const project = await this.projects.find(projectId)
+      const incoming = input.map((entry) => requireSecretInput({ ...entry, projectId: project.id }))
+      if (!incoming.length || new Set(incoming.map((entry) => entry.name)).size !== incoming.length) {
+        throw new Error('The transfer contains no secrets or contains duplicate names.')
+      }
+      const stored = await this.readSecrets(project)
+      const imported = stored.filter((secret) => secret.transferId === transferId)
+      if (imported.length) {
+        if (imported.length !== incoming.length || incoming.some((entry) => !imported.some((secret) => secret.name === entry.name))) {
+          throw new Error('This transfer was already imported and its secrets changed. No secrets were imported again.')
+        }
+        return imported.map(({ id, name }) => ({ id, name, projectId: project.id }))
+      }
+      for (const entry of incoming) {
+        if (stored.some((secret) => secret.name === entry.name)) {
+          throw new Error(`${entry.name} already exists in ${project.name}. Choose another project or resolve the name conflict first.`)
+        }
+      }
+      await beforeWrite()
+      const added: StoredSecret[] = []
+      try {
+        const writes = await Promise.allSettled(incoming.map(async (entry) => {
+          const id = randomUUID()
+          const key = randomBytes(32)
+          const plaintext = Buffer.from(entry.value)
+          try {
+            const sealed = encodeSealed(seal(key, plaintext, valueData(project, id)))
+            await this.entry(project, id).setSecret(key)
+            added.push({ id, name: entry.name, transferId, ...sealed })
+          } finally {
+            key.fill(0)
+            plaintext.fill(0)
+          }
+        }))
+        for (const write of writes) if (write.status === 'rejected') throw write.reason
+        await this.writeSecrets(project, [...stored, ...added])
+      } catch (error) {
+        const removed = await Promise.allSettled(added.map((secret) => this.entry(project, secret.id).deleteCredential()))
+        if (removed.some((result) => result.status === 'rejected')) {
+          throw new Error('Import failed. Some unused Keychain keys could not be removed. Unlock Keychain before retrying.', { cause: error })
+        }
+        throw error
+      }
+      return added.map(({ id, name }) => ({ id, name, projectId: project.id }))
     })
   }
 
@@ -431,6 +505,14 @@ function isStoredSecret(value: unknown): value is StoredSecret {
   if (typeof value !== 'object' || value === null) return false
   const secret = value as Record<string, unknown>
   return ['id', 'name', 'iv', 'tag', 'value'].every((field) => typeof secret[field] === 'string')
+}
+
+function requireSecretIds(input: unknown): string[] {
+  if (!Array.isArray(input) || input.length === 0 || input.length > 1000 ||
+    !input.every((id): id is string => typeof id === 'string' && id.length > 0) || new Set(input).size !== input.length) {
+    throw new Error('Select between 1 and 1000 different secrets from one project.')
+  }
+  return input
 }
 
 // Secret names follow environment variable rules, because approved processes receive secrets as environment variables.

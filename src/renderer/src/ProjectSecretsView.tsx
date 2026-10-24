@@ -51,7 +51,10 @@ export function ProjectSecretsView({ projectId, projects, secrets, updateSecrets
           <h1>{project.name}</h1>
           <p className="description">{project.directory}</p>
         </div>
-        <a className="button-link secondary" href="#/">All projects</a>
+        <div className="row-actions">
+          <a className="button-link secondary" href={`#/sharing/${encodeURIComponent(project.id)}`}>Share secrets</a>
+          <a className="button-link secondary" href="#/">All projects</a>
+        </div>
       </div>
 
       <StatusLine status={operation.status} />

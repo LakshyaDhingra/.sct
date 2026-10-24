@@ -51,7 +51,8 @@ Integration:
 
 Post-MVP:
 
-- [ ] AirDrop sharing (#22).
+- [x] Standalone AirDrop copies into a recipient-selected local project.
+- [ ] AirDrop grant and agent integration (#22).
 - [ ] Factory integration (#23).
 - [ ] Access renewal, manual rotation, Fetch.ai integration, and provider import and export.
 
@@ -88,7 +89,8 @@ Durable receipt records prevent duplicate secret imports.
 Integration issue #33 adds durable execution records and local review for uncertain remote crash outcomes.
 
 Local vault access remains available offline.
-Cross-device delivery and acknowledgments require the relay.
+Relay messages and acknowledgments require a connection to SpacetimeDB.
+Standalone AirDrop copies use the local verification and import flow below.
 The UI identifies cached status and queued work during outages.
 Message expiry blocks later delivery and import.
 It does not revoke credentials already delivered.
@@ -169,6 +171,54 @@ await import('./server.js')
 The SDK updates `process.env` after saved changes without restarting the application.
 Use `onChange` to recreate library clients that retain credentials during initialization.
 The SDK has no runtime dependencies. The signed main process retains Keychain access and decryption.
+
+### Share secrets through AirDrop
+
+Open **Sharing** on both Macs. The first visit creates a local sharing identity in macOS Keychain.
+Select **Share device card…** on each Mac, then choose AirDrop in the macOS share menu.
+Device cards contain public keys only.
+
+Select **Add recipient…** to open the other Mac's `.sct-device` card.
+Compare the full pairing code on both screens through a trusted conversation.
+Confirm only if both codes match. Complete verification on both Macs.
+Verify a new card if either device's keys change.
+
+Open a project and select **Share secrets**.
+Select a verified recipient and individual secrets, or select all secrets in that project.
+Select **Send via AirDrop…**, then choose AirDrop in the macOS share menu.
+.sct encrypts the package for the selected device before it creates a transfer file.
+
+On the recipient Mac, accept AirDrop and open the `.sct-transfer` package in the signed .sct app.
+You can also select **Open transfer…** in Sharing.
+Choose a registered destination project, then select **Import secrets**.
+.sct saves the imported copies in its configured `.sct/[project-name]/secrets.sct` file with fresh local Keychain keys.
+The sender's project name and folder path do not determine this destination.
+Existing secret names cause an error before any secret in the batch changes.
+Choose another project or resolve the conflict before retrying.
+
+Packages expire after 24 hours and cannot exceed 8 MiB or 1000 selected secrets.
+The recipient checks the verified sender, signature, recipient, timestamps, and message ID before import.
+Durable receipts and encrypted vault markers prevent duplicate imports after a restart or interrupted import.
+An interrupted import remains bound to its original destination project.
+Imports create permanent local copies. Package expiry does not revoke imported credentials.
+This copy flow needs no relay, agent, or network connection beyond AirDrop.
+Grant restrictions and remote execution remain separate work under #22 and #33.
+
+AirDrop can first save the encrypted package in Downloads. Opening it in .sct selects its final vault project.
+The macOS share menu exposes no delivery-completion event to Electron.
+The sender therefore sees preparation status, not confirmed receipt.
+The recipient confirms import locally. GSAP animates local activity and respects reduced-motion settings.
+
+.sct keeps outbound ciphertext in its private application data until app exit.
+After a crash, the next desktop startup removes expired outbound packages.
+Import or dismissal removes the app's pending ciphertext copy.
+The original AirDrop file remains where macOS saved it. You can delete that encrypted file after import.
+Plaintext secret values and private keys never enter transfer files, logs, or renderer responses.
+Secret values exist in main-process memory during encryption and import.
+JavaScript strings cannot be explicitly cleared from memory.
+
+Build with `bun run package:mac` to register `.sct-transfer` documents with macOS.
+The development window does not register a file association.
 
 ### Vault storage
 

@@ -6,9 +6,10 @@ import { errorText } from './operation'
 import { ProjectSecretsView } from './ProjectSecretsView'
 import { ProjectsView } from './ProjectsView'
 import { StorageView } from './StorageView'
+import { SharingView } from './SharingView'
 import type { Loaded, UpdateProjects, UpdateSecrets } from './types'
 
-type Route = { view: 'projects' } | { view: 'project'; id: string } | { view: 'secrets' } | { view: 'storage' }
+type Route = { view: 'projects' } | { view: 'project'; id: string } | { view: 'secrets' } | { view: 'storage' } | { view: 'sharing'; projectId?: string }
 
 export function App() {
   const route = parseRoute(useSyncExternalStore(subscribeToHash, () => window.location.hash))
@@ -30,6 +31,10 @@ export function App() {
     return () => { active = false }
   }, [])
 
+  useEffect(() => window.sct.onSharingChanged(() => {
+    if (!window.location.hash.startsWith('#/sharing')) window.location.hash = '#/sharing'
+  }), [])
+
   const updateProjects: UpdateProjects = (change) =>
     setProjects((current) => current.state === 'ready' ? { state: 'ready', value: change(current.value) } : current)
   const updateSecrets: UpdateSecrets = (change) =>
@@ -43,6 +48,7 @@ export function App() {
           <nav aria-label="Main">
             <a href="#/" aria-current={route.view === 'projects' || route.view === 'project' ? 'page' : undefined}>Projects</a>
             <a href="#/secrets" aria-current={route.view === 'secrets' ? 'page' : undefined}>All secrets</a>
+            <a href="#/sharing" aria-current={route.view === 'sharing' ? 'page' : undefined}>Sharing</a>
             <a href="#/storage" aria-current={route.view === 'storage' ? 'page' : undefined}>Storage</a>
           </nav>
         </div>
@@ -57,6 +63,10 @@ export function App() {
         )}
         {route.view === 'secrets' && <AllSecretsView projects={projects} secrets={secrets} />}
         {route.view === 'storage' && <StorageView />}
+        {route.view === 'sharing' && (
+          <SharingView key={route.projectId ?? 'sharing'} projectId={route.projectId}
+            projects={projects} secrets={secrets} updateSecrets={updateSecrets} />
+        )}
       </main>
     </div>
   )
@@ -72,5 +82,6 @@ function parseRoute(hash: string): Route {
   if (view === 'projects' && id) return { view: 'project', id: decodeURIComponent(id) }
   if (view === 'secrets') return { view: 'secrets' }
   if (view === 'storage') return { view: 'storage' }
+  if (view === 'sharing') return { view: 'sharing', projectId: id ? decodeURIComponent(id) : undefined }
   return { view: 'projects' }
 }

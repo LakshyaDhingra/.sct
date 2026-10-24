@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Reply, SctAPI } from '../shared/api'
 import type { Project, ProjectInput, ProjectRename } from '../shared/projects'
 import type { SecretInput, SecretMetadata, SecretReference, SecretUpdate } from '../shared/secrets'
+import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../shared/sharing'
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const reply: Reply<T> = await ipcRenderer.invoke(channel, ...args)
@@ -20,7 +21,20 @@ const api: SctAPI = {
   updateSecret: (input: SecretUpdate) => invoke<SecretMetadata>('secrets:update', input),
   deleteSecret: (input: SecretReference) => invoke<void>('secrets:delete', input),
   getVaultLocation: () => invoke<string>('vault:location'),
-  chooseVaultLocation: () => invoke<string | null>('vault:choose-location')
+  chooseVaultLocation: () => invoke<string | null>('vault:choose-location'),
+  getSharingState: () => invoke<SharingState>('sharing:state'),
+  shareDeviceCard: () => invoke<void>('sharing:device-card'),
+  pickSharingPeer: () => invoke<PairingPreview | null>('sharing:pick-peer'),
+  confirmSharingPeer: (token) => invoke<SharingDevice>('sharing:confirm-peer', token),
+  shareSecrets: (input) => invoke<void>('sharing:send', input),
+  pickTransfer: () => invoke<TransferPreview | null>('sharing:pick-transfer'),
+  importTransfer: (input) => invoke<SecretMetadata[]>('sharing:import', input),
+  dismissTransfer: (id) => invoke<void>('sharing:dismiss', id),
+  onSharingChanged: (listener) => {
+    const changed = () => listener()
+    ipcRenderer.on('sharing:changed', changed)
+    return () => { ipcRenderer.removeListener('sharing:changed', changed) }
+  }
 }
 
 contextBridge.exposeInMainWorld('sct', api)
