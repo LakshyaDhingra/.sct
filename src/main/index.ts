@@ -63,10 +63,17 @@ async function createWindow(): Promise<void> {
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   window.webContents.session.setPermissionCheckHandler(() => false)
 
-  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    await window.loadURL(`${process.env.ELECTRON_RENDERER_URL}${incomingFiles.length ? '#/sharing' : ''}`)
-  } else {
-    await window.loadFile(join(__dirname, '../renderer/index.html'), { hash: incomingFiles.length ? '/sharing' : undefined })
+  let closing = false
+  window.once('close', () => { closing = true })
+  try {
+    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+      await window.loadURL(`${process.env.ELECTRON_RENDERER_URL}${incomingFiles.length ? '#/sharing' : ''}`)
+    } else {
+      await window.loadFile(join(__dirname, '../renderer/index.html'), { hash: incomingFiles.length ? '/sharing' : undefined })
+    }
+  } catch (error) {
+    // A window that closes during its first load, for example when the user quits, stops the load. This is not a startup failure.
+    if (!closing) throw error
   }
 }
 
