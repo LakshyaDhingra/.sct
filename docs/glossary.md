@@ -1,165 +1,170 @@
 # Vault technical glossary
 
-This document defines technical terms used in the MVP issues. Terms describe the planned design, not verified security guarantees.
+These terms describe the development plan. Implementation tests must establish the stated behavior.
+
+## Vault
+
+The Electron, React, and TypeScript app in this repository. It manages local credentials and encrypted device handoffs.
 
 ## App signing identity
 
 <a id="signing-identity"></a>
 
-A certificate and private key that identify the Electron application when macOS checks its code signature. Do not commit the private key.
-
-## Keychain
-
-<a id="keychain"></a>
-
-The macOS service that stores passwords and cryptographic keys. Vault uses it to store credential values and device private keys.
+A certificate and private key that identify the macOS app. Keep the signing private key outside Git.
 
 ## Stable code signature
 
-<a id="stable-code-signature"></a>
+The app uses the same development signing identity after rebuilds. Test Keychain access after a signed rebuild.
 
-A code signature that uses the same app signing identity after each build. This can keep macOS Keychain access consistent.
+## Keychain
+
+The macOS service that protects credentials, device private keys, and keys for encrypted local files.
+
+## Local vault
+
+The device's Keychain-backed credential storage. Any secret files contain ciphertext. Local access remains available during relay outages.
 
 ## SpacetimeDB
 
-<a id="spacetimedb"></a>
+The cloud-hosted relay for persisted ciphertext, routing metadata, grants, and delivery status. Device subscriptions receive authorized rows.
 
-A database that runs on each Mac. Vault stores metadata and activity here, not secret values.
+## Relay
 
-## MCP
+A service that persists and routes encrypted messages. It does not receive the keys needed to decrypt payloads.
 
-<a id="mcp"></a>
+## Subscription
 
-Model Context Protocol. A tool interface that lets Claude Code request approved actions from Vault.
+A connection that receives database updates. Server-side authorization limits which messages a device can receive.
 
-## Local approval
+## TLS
 
-<a id="local-approval"></a>
+Transport Layer Security protects the relay connection. Payload encryption separately protects message contents from the relay.
 
-A user decision made in the Vault app before a sensitive action. An agent cannot approve its own request.
+## Server-side authorization
 
-## Injection
-
-<a id="injection"></a>
-
-The act of providing a credential to a child process at start time, usually through an environment variable. The child process can read that credential.
-
-## Secret boundary
-
-<a id="secret-boundary"></a>
-
-The part of the design that limits which processes receive credential values. Redaction and an MCP tool alone do not prevent exfiltration.
+Relay checks that bind operations to an authenticated device identity. These checks restrict reads, subscriptions, writes, and status changes.
 
 ## Electron main process
 
-<a id="electron-main-process"></a>
-
-The trusted Electron process that manages Keychain access, local files, SpacetimeDB, sharing, expiry, and approved process launch. Vault does not use a separate daemon.
+The trusted TypeScript process for vault access, encryption, relay connections, expiry checks, and approved process launch.
+Vault uses no separate application daemon.
 
 ## IPC
 
-<a id="ipc"></a>
-
-Inter-process communication. Vault uses a local Unix socket to exchange approved requests and metadata.
+Inter-process communication. A narrow preload bridge connects the renderer to approved main-process operations.
+CLI requests also require a restricted local channel to the Electron app.
 
 ## Renderer
 
-<a id="renderer"></a>
+The Electron process that displays the React UI. It clears entered secret values after submission and never receives stored values.
 
-The Electron process that displays the user interface. It must not receive secret values.
+## CLI
+
+Command-line interface. Local agents submit tasks, secrets through stdin, or local vault references.
+
+## MCP
+
+Model Context Protocol. Claude Code uses narrow tools to request authorized Vault actions.
+
+## Local approval
+
+The recipient user's decision before agent execution. A relay message or agent cannot approve its own launch.
+
+## Injection
+
+Passing a local credential to an approved process through its environment. The process can read the value.
+
+## Secret boundary
+
+The rules that limit which processes receive secret values. An approved process can copy a credential it receives.
 
 ## Device identity
 
-<a id="device-identity"></a>
-
-A device-specific key pair used to verify which peer sent a message. The private key stays on its device.
+A device's signing and encryption keys, bound to its authenticated relay identity. Private keys remain in the local vault.
 
 ## Pairing
 
-<a id="pairing"></a>
-
-The process in which two users compare a code and accept each other's public keys.
+Both users compare a code derived from their device keys. Each device pins the verified peer keys before sharing.
 
 ## Digital signature
 
-<a id="digital-signature"></a>
+A value that authenticates the sender and signed envelope fields. The recipient checks it using the pinned sender key.
 
-A cryptographic value that a sender creates with its private key. The recipient checks it with the sender's public key.
+## Encrypted handoff
+
+A signed envelope for one recipient. Its ciphertext contains a secret, task, grant, acknowledgment, or result.
 
 ## Encrypted grant
 
-<a id="encrypted-grant"></a>
+A handoff payload that contains a credential and local access restrictions. Only the intended recipient decrypts it.
 
-A signed package that contains an encrypted secret and access limits for one recipient. Only the intended recipient can decrypt the payload.
+## Message ID
 
-## Tailscale
+A stable identifier reused across retries. Duplicate IDs cannot trigger another automatic execution.
 
-<a id="tailscale"></a>
+## Correlation ID
 
-A private network transport used to deliver Vault packages between paired devices.
+The original handoff ID included in acknowledgments and results. It connects replies to the sender's request.
 
-## AirDrop
-
-<a id="airdrop"></a>
-
-A macOS file-transfer method. Vault uses it to carry the same encrypted grant packages without a new secret format.
-
-## Grant
-
-<a id="grant"></a>
-
-An authorization record that states which device can use a secret, what it can do, and when access expires.
-
-## Injection-only grant
-
-<a id="injection-only-grant"></a>
-
-A Vault permission that allows approved process injection but blocks reveal, copy, and reshare through Vault. It cannot prevent the child process from reading the value.
-
-## TTL
-
-<a id="ttl"></a>
-
-Time to live. The duration of a grant before Vault refuses new operations that use it.
-
-## Access expiry
-
-<a id="access-expiry"></a>
-
-The time when Vault stops new access and deletes the recipient's local encrypted secret file. The Electron cleanup task records the event in SpacetimeDB and sends an update to the admin when connected. It cannot revoke a value already copied or used by a running process.
-
-## Audit event
-
-<a id="audit-event"></a>
-
-A metadata record of an action. It identifies the action and actor but does not store a secret value.
-
-## Droid
-
-<a id="droid"></a>
-
-Factory's coding agent. Vault exposes the same narrow MCP tools to Droid and Claude Code.
-
-## Redaction
-
-<a id="redaction"></a>
-
-The process of replacing recognized secret text in output. Redaction is not a security boundary against arbitrary process behavior.
-
-## Signed acknowledgement
+## Delivery acknowledgment
 
 <a id="signed-acknowledgement"></a>
 
-A recipient message that confirms an import. Its digital signature identifies the sender.
+An encrypted, authenticated reply confirming durable receipt. It does not confirm execution success.
+
+## Execution result
+
+An encrypted, correlated reply containing an approved outcome or redacted result. It excludes credentials and unrestricted logs.
+
+## Execution claim
+
+A durable local record written before launch. A claim without a known outcome requires local review after a crash.
+
+## Duplicate-execution protection
+
+Durable message IDs, execution claims, and outcomes that prevent retries from automatically starting the same task again.
+
+## Grant
+
+An authorization record for a recipient, credential, permitted operation, and absolute access deadline.
+
+## Injection-only grant
+
+A permission that allows approved process injection. Vault denies reveal, copy, and reshare for received grants.
+
+## TTL
+
+Time to live. Convert it to an absolute deadline. Distinguish message delivery deadlines from grant access deadlines.
+
+## Message expiry
+
+The deadline after which a message cannot be delivered or executed. It does not revoke a credential already delivered.
+
+## Access expiry
+
+The grant deadline that blocks new vault use. Local cleanup removes grant material and queues a notification for the sender.
+Cleanup resumes at startup or wake. It cannot remove external copies or a running process's environment.
+
+## Audit event
+
+A metadata record of submission, receipt, approval, execution, or expiry. It contains no secret value or plaintext task output.
 
 ## Replay attack
 
-<a id="replay-attack"></a>
+Repeated delivery of an old message. Deadline checks and durable duplicate records prevent automatic execution of the repeated request.
 
-A repeated delivery of a valid old message. Vault checks package IDs to reject duplicates.
+## Redaction
+
+Removing recognized secret values from output before display or transmission. It does not make arbitrary agent output safe.
+
+## AirDrop
+
+A deferred transport for the same encrypted handoff format. Issue #22 is outside MVP scope.
+
+## Droid
+
+Factory's coding agent. Its integration remains post-MVP in issue #23.
 
 ## Threat model
 
-<a id="threat-model"></a>
-
-A description of attackers, trust boundaries, protected data, and limits of the security design.
+The protected data, trusted processes, possible attackers, and limits of the design. Message expiry cannot revoke delivered credentials.
