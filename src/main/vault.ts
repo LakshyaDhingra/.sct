@@ -159,12 +159,41 @@ export class Vault {
     })
   }
 
+  // Main-process consumers must not retain or return plaintext. No IPC handler exposes this method.
+  withSecret<T>(input: unknown, use: (value: Buffer) => T | Promise<T>): Promise<T> {
+    return this.serialize(async () => {
+      const { projectId, id } = requireSecretReference(input)
+      const project = await this.projects.find(projectId)
+      const value = await this.decryptSecret(project, requireSecret(await this.readSecrets(project), id))
+      try {
+        return await use(value)
+      } finally {
+        value.fill(0)
+      }
+    })
+  }
+
   deleteSecret(input: unknown): Promise<void> {
     return this.serialize(async () => {
       const { projectId, id } = requireSecretReference(input)
       const project = await this.projects.find(projectId)
       await this.removeSecret(project, await this.readSecrets(project), id)
     })
+  }
+
+  private async decryptSecret(project: Project, secret: StoredSecret): Promise<Buffer> {
+    const key = await this.readKey(project, secret.id)
+    try {
+      return open(key, {
+        iv: Buffer.from(secret.iv, 'base64'),
+        tag: Buffer.from(secret.tag, 'base64'),
+        ciphertext: Buffer.from(secret.value, 'base64')
+      }, valueData(project, secret.id))
+    } catch (error) {
+      throw new Error('Cannot decrypt this secret. Its encrypted value or Keychain key is invalid.', { cause: error })
+    } finally {
+      key.fill(0)
+    }
   }
 
   private async removeSecret(project: Project, secrets: StoredSecret[], id: string): Promise<StoredSecret[]> {
@@ -321,7 +350,13 @@ function seal(key: Buffer, plaintext: Buffer, data: Buffer): Sealed {
 
 function open(key: Buffer, { iv, tag, ciphertext }: Sealed, data: Buffer): Buffer {
   const decipher = createDecipheriv('aes-256-gcm', key, iv).setAAD(data).setAuthTag(tag)
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()])
+  const plaintext = decipher.update(ciphertext)
+  try {
+    return Buffer.concat([plaintext, decipher.final()])
+  } finally {
+    // GCM can produce plaintext before final() checks the authentication tag.
+    plaintext.fill(0)
+  }
 }
 
 function decodeFile(contents: Buffer): Sealed {

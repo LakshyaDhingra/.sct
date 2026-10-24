@@ -152,6 +152,20 @@ If Keychain rejects a secret deletion, .sct restores the encrypted entry so you 
 A failed project deletion keeps the project and its remaining secret entries for another attempt.
 The local secret workflow implements [#26](https://github.com/omavashia2005/.sct/issues/26) and does not require a relay connection.
 
+Main-process code can use `Vault.withSecret(reference, use)` for an internal read under [#6](https://github.com/omavashia2005/.sct/issues/6).
+The reference contains `projectId` and the secret `id`.
+The method validates the reference and decrypts only the selected value with its existing Keychain key.
+It waits for the callback, then clears the plaintext Buffer, including after a callback failure.
+It also clears its copy of the value key after decryption.
+
+A sender can encrypt the Buffer in the callback and return ciphertext. It must not retain or return plaintext.
+Clearing a Buffer cannot clear copies that the callback creates, including strings.
+Do not call another vault operation from the callback. Vault operations use the same serial queue.
+
+No preload method or IPC handler exposes this read operation.
+Consumers must keep plaintext out of renderer responses, logs, command arguments, and files.
+The storage format stays unchanged. Local vault operations need no CLI, MCP server, or relay.
+
 ## Project structure
 
 | Path | Purpose |
@@ -190,7 +204,7 @@ Local startup does not import a relay client.
 The UI test blocks HTTP and WebSocket requests before the window opens.
 It checks renderer isolation, folder selection, cancellation, invalid paths, duplicate folders, and persistence after restart.
 It also checks secret save, update, and delete, value clearing, project rename and delete, and a vault move.
-It checks metadata-only renderer responses and Keychain key removal after deletion.
+It checks metadata-only renderer responses. The vault tests check Keychain key removal after deletion.
 The vault tests and the UI test use real macOS Keychain. They remove their Keychain items when they pass.
 The vault tests also check deletion retries after a rejected Keychain operation.
 The test supplies folder-picker results automatically. It does not operate the native macOS dialog.

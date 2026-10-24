@@ -37,10 +37,10 @@ async function setup(t: TestContext) {
     for (const account of accounts) await new AsyncEntry(service, account).deleteCredential()
     await rm(root, { recursive: true, force: true })
   })
-  return { root, open, keychainKey, folder }
+  return { root, service, open, keychainKey, folder }
 }
 
-test('secrets are encrypted at rest and only metadata leaves the vault', async (t) => {
+test('secrets stay encrypted at rest and renderer operations return only metadata', async (t) => {
   const { root, open, keychainKey, folder } = await setup(t)
   const vault = await open()
   assert.equal(vault.location(), join(root, '.sct'))
@@ -57,13 +57,79 @@ test('secrets are encrypted at rest and only metadata leaves the vault', async (
   assert.ok(await keychainKey(`${project.id}/${secret.id}`))
 
   assert.deepEqual(await (await open()).listSecrets(), [secret])
+  await (await open()).withSecret(secret, (plaintext) => assert.equal(plaintext.toString('utf8'), value))
   await vault.updateSecret({ projectId: project.id, id: secret.id, value: `${value}-new` })
   assert.notDeepEqual(await readFile(join(root, '.sct', 'Demo', 'secrets.sct')), file)
   assert.deepEqual(await vault.listSecrets(), [secret])
+  await (await open()).withSecret(secret, (plaintext) => assert.equal(plaintext.toString('utf8'), `${value}-new`))
 
   await vault.deleteSecret({ projectId: project.id, id: secret.id })
   assert.deepEqual(await vault.listSecrets(), [])
   assert.equal(await keychainKey(`${project.id}/${secret.id}`), null)
+  await assert.rejects(vault.withSecret(secret, () => assert.fail('A deleted secret must not reach the consumer.')), /does not exist/)
+})
+
+test('internal reads clear plaintext after asynchronous success and failure', async (t) => {
+  const { open, folder } = await setup(t)
+  const vault = await open()
+  const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
+  const value = ' spaces "quotes" $dollars = equals\nnext line 🔑'
+  const secret = await vault.addSecret({ projectId: project.id, name: 'TOKEN', value })
+  let plaintext: Buffer | undefined
+
+  assert.equal(await vault.withSecret(secret, async (buffer) => {
+    plaintext = buffer
+    await Promise.resolve()
+    assert.equal(buffer.toString('utf8'), value)
+    return 'consumed'
+  }), 'consumed')
+  assert.ok(plaintext)
+  assert.deepEqual(plaintext, Buffer.alloc(Buffer.byteLength(value)))
+
+  await assert.rejects(vault.withSecret(secret, async (buffer) => {
+    plaintext = buffer
+    await Promise.resolve()
+    assert.equal(buffer.toString('utf8'), value)
+    throw new Error('Consumer failed.')
+  }), /Consumer failed/)
+  assert.deepEqual(plaintext, Buffer.alloc(Buffer.byteLength(value)))
+  await assert.rejects(vault.withSecret(secret, (buffer) => {
+    plaintext = buffer
+    throw new Error('Synchronous consumer failed.')
+  }), /Synchronous consumer failed/)
+  assert.deepEqual(plaintext, Buffer.alloc(Buffer.byteLength(value)))
+  await vault.withSecret(secret, (buffer) => assert.equal(buffer.toString('utf8'), value))
+})
+
+test('internal reads reject invalid references, other projects, and missing or incorrect keys', async (t) => {
+  const { root, service, open, keychainKey, folder } = await setup(t)
+  const vault = await open()
+  const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
+  const other = await vault.addProject({ name: 'Other', directory: await folder('other') })
+  const secret = await vault.addSecret({ projectId: project.id, name: 'TOKEN', value: 'private value' })
+  const contents = await readFile(join(root, '.sct', project.name, 'secrets.sct'))
+  const rejectConsumer = () => assert.fail('An invalid read must not reach the consumer.')
+  for (const input of [null, {}, { projectId: project.id }, { ...secret, projectId: 'missing' },
+    { ...secret, projectId: other.id }, { ...secret, id: 'missing' }]) {
+    await assert.rejects(vault.withSecret(input, rejectConsumer))
+  }
+
+  const key = await keychainKey(`${project.id}/${secret.id}`)
+  assert.ok(key)
+  const entry = new AsyncEntry(service, `${project.id}/${secret.id}`)
+  await entry.deleteCredential()
+  await assert.rejects(vault.withSecret(secret, rejectConsumer), /Keychain key .* is missing/)
+  await entry.setSecret(Buffer.alloc(32))
+  await assert.rejects(vault.withSecret(secret, rejectConsumer), /Cannot decrypt this secret/)
+  await entry.setSecret(Buffer.from(key))
+  const fileKey = await keychainKey(`${project.id}/file`)
+  assert.ok(fileKey)
+  const fileEntry = new AsyncEntry(service, `${project.id}/file`)
+  await fileEntry.deleteCredential()
+  await assert.rejects(vault.withSecret(secret, rejectConsumer), /Keychain key .* is missing/)
+  await fileEntry.setSecret(Buffer.from(fileKey))
+  await vault.withSecret(secret, (buffer) => assert.equal(buffer.toString('utf8'), 'private value'))
+  assert.deepEqual(await readFile(join(root, '.sct', project.name, 'secrets.sct')), contents)
 })
 
 test('invalid secrets and duplicate names do not change the vault', async (t) => {
@@ -165,6 +231,7 @@ test('renaming a project moves its secrets, and deleting it removes its files an
   await vault.renameProject({ id: project.id, name: 'Renamed' })
   assert.deepEqual(await readdir(join(root, '.sct')), ['Renamed'])
   assert.deepEqual(await vault.listSecrets(), [secret])
+  await (await open()).withSecret(secret, (buffer) => assert.equal(buffer.toString('utf8'), 'value'))
 
   await mkdir(join(root, '.sct', 'Taken', 'unrelated'), { recursive: true })
   await assert.rejects(vault.renameProject({ id: project.id, name: 'Taken' }), /already contains a folder named Taken/)
@@ -200,6 +267,7 @@ test('a secrets file copied into a different project does not open', async (t) =
   const other = await vault.addSecret({ projectId: second.id, name: 'OTHER', value: 'value' })
   await copyFile(join(root, '.sct', 'First', 'secrets.sct'), join(root, '.sct', 'Second', 'secrets.sct'))
   await assert.rejects(vault.listSecrets(), /different project/)
+  await assert.rejects(vault.withSecret(other, () => assert.fail('A copied vault must not open.')), /different project/)
   // Second cannot open its file now, so cleanup cannot delete it. These calls record its Keychain items for removal.
   assert.ok(await keychainKey(`${second.id}/file`))
   assert.ok(await keychainKey(`${second.id}/${other.id}`))
@@ -217,6 +285,7 @@ test('moving the storage location moves the vault and persists after restart', a
   const restarted = await open()
   assert.equal(restarted.location(), join(target, '.sct'))
   assert.deepEqual(await restarted.listSecrets(), [secret])
+  await restarted.withSecret(secret, (buffer) => assert.equal(buffer.toString('utf8'), 'value'))
 
   await mkdir(join(root, 'occupied', '.sct'), { recursive: true })
   await assert.rejects(restarted.moveTo(join(root, 'occupied')), /already contains/)
