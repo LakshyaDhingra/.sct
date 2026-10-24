@@ -139,7 +139,8 @@ Closing stdin ends the MCP process and cancels pending requests.
 The server exposes the operations above as tools.
 It also exposes each workflow as a prompt with the operation name and a Markdown resource at `sct://skills/<operation>`.
 MCP `run_demo` requires a saved `secretId`. MCP does not accept a plaintext credential value.
-Claude Code integration and host approval checks remain separate validation work in #4 and #10.
+See [the Claude Code demo project](../examples/claude-code/README.md) for a configuration that allows only the `sct` server.
+Claude Code permission decisions apply first. Each allowed call still requires the local .sct decision.
 
 ## Skills
 
