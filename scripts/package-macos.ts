@@ -1,6 +1,6 @@
 import { packager } from '@electron/packager'
 import { execFileSync } from 'node:child_process'
-import { writeFile } from 'node:fs/promises'
+import { cp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import manifest from '../package.json'
 import electron from 'electron/package.json'
@@ -23,12 +23,19 @@ if (identities.length !== 1) {
 const identity = identities[0].match(/\b[0-9A-F]{40}\b/i)?.[0]
 if (!identity) throw new Error('Cannot read the signing certificate fingerprint.')
 
+// The main process loads @napi-rs/keyring at runtime. Vite does not bundle native modules, so the app needs a copy.
+// The listed dependency keeps the packager's prune step from removing the copy.
 await writeFile('out/package.json', JSON.stringify({
   name: manifest.name,
   version: manifest.version,
   description: manifest.description,
-  main: 'main/index.js'
+  main: 'main/index.js',
+  dependencies: { '@napi-rs/keyring': manifest.dependencies['@napi-rs/keyring'] }
 }, null, 2))
+await rm('out/node_modules', { recursive: true, force: true })
+for (const name of ['@napi-rs/keyring', `@napi-rs/keyring-darwin-${process.arch}`]) {
+  await cp(join('node_modules', name), join('out/node_modules', name), { recursive: true, dereference: true })
+}
 
 const [output] = await packager({
   dir: 'out',
@@ -39,7 +46,8 @@ const [output] = await packager({
   electronVersion: electron.version,
   platform: 'darwin',
   arch: process.arch,
-  asar: true,
+  // macOS cannot load a native library from inside the archive.
+  asar: { unpack: '*.node' },
   overwrite: true,
   osxSign: {
     identity,

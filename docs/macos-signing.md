@@ -39,6 +39,7 @@ bun run package:mac
 ```
 
 The command compiles the application, packages its generated files, and signs the app and nested Electron binaries.
+The command also copies the `@napi-rs/keyring` native module into the app. The `.node` binary stays outside the asar archive, and the command signs it with the app.
 It selects the certificate by its fingerprint after checking its name and code-signing validity.
 This code-signing check replaces the signing library's general certificate lookup, which rejects certificates trusted only for code signing.
 The command then checks the complete signature and the expected bundle identifier and certificate.
