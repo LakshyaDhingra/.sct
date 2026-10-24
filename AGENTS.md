@@ -66,7 +66,8 @@ function requireConfig(input: unknown) {
 
 - Use Bun 1.4.4 or later for dependencies and project commands.
 - Run `bun run check` from the repository root for the full lint and type check.
-- During focused changes, run `bun typecheck` from the repository root. It checks the desktop app and `packages/env` SDK sources.
+- During focused changes, run `bun typecheck` from the repository root. It checks the desktop app, `packages/env` SDK sources, and the `packages/relay` module.
+  `packages/relay/package.json` lists no dependencies. The SpacetimeDB CLI requires it to detect the relay module.
 - Run `bun run build:sdk` to check SDK declarations with the pinned official TypeScript compiler.
 - Never run `tsc` directly. Use the repository scripts.
 - The local `typecheck` script uses `bun check --no-script` for the Electron and renderer configurations.
