@@ -17,7 +17,7 @@ bun run install:cli
 The first command builds the desktop app, CLI, MCP server, TypeScript SDK, console demo, and bundled skills.
 It uses the existing `.sct Development` signing identity and `com.omavashia2005.sct` bundle identifier.
 See [signing setup](macos-signing.md) for local prerequisites.
-The second command links the signed executable as `~/.local/bin/sct`.
+The second command installs `~/.local/bin/sct` as a launcher for the signed executable.
 
 Use `bun run build` for an unsigned development build.
 Use `bun run build:demo` to rebuild only `out/demo/index.cjs`.

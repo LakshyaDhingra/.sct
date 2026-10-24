@@ -7,15 +7,17 @@ See [local agent entrypoints and demo](agent-access.md) for the separate agent a
 
 ## Set up once
 
-From the .sct repository, build the signed app and install its CLI link:
+From the .sct repository, build the signed app and install its CLI launcher:
 
 ```sh
 bun run package:mac
 bun run install:cli
 ```
 
-The installer links `~/.local/bin/sct` to the built executable.
-It preserves existing commands and rejects links to another application.
+The installer writes `~/.local/bin/sct` as a shell script that runs the built executable with `exec`.
+Electron finds its helper apps only from the real executable path, so the command is not a symbolic link.
+The installer replaces an earlier .sct link to the same executable.
+It preserves other existing commands and rejects launchers or links for another application.
 If `~/.local/bin` is absent from `PATH`, the installer prints this line for your `~/.zshrc`:
 
 ```sh
