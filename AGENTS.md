@@ -28,6 +28,16 @@ const journalPath = path.join(dir, "journal.json")
 const journal = await Bun.file(journalPath).json()
 ```
 
+## Implementation order
+
+- Follow [the issue order and prerequisites](docs/architecture.md#implementation-order).
+- Phase 2.1 defines SpacetimeDB setup, communication, and encrypted transfer contracts.
+- Phase 2.2 builds the sharing UI with delivery and checks secure sharing.
+- Phase 2 must work without CLI, MCP, installed agents, task execution, or agent approval.
+- Start Phase 3 Agent Access only after issue #20 passes.
+- Use numbered issue title prefixes for the order. GitHub issue IDs stay unchanged.
+- Keep every prerequisite earlier than its dependent issue. Do not add cyclic dependencies.
+
 ## Complex Logic
 
 When a function has several validation branches or supporting details, make the main function show the successful path. Move supporting details into small helpers below the main function.

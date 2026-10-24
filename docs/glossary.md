@@ -1,6 +1,25 @@
 # .sct technical glossary
 
-These terms describe the development plan. Implementation tests must establish the stated behavior.
+These terms describe the development plan.
+Implementation checks must establish the stated behavior.
+
+Phase 2 covers app-to-app sharing, delivery acknowledgments, grant restrictions, and expiry.
+Phase 3 adds Agent Access only after #20 passes.
+CLI, MCP, agent approval, injection, execution claims, and execution results describe Phase 3.
+They are not prerequisites for Phase 2 sharing.
+See the [implementation order](architecture.md#implementation-order).
+
+## Agent Access
+
+The Phase 3 CLI, MCP, approval, and process execution features.
+This work depends on the completed secure-sharing checkpoint in #20.
+
+## Title prefix
+
+The implementation order shown at the start of each GitHub issue title.
+For example, 2.1.1 precedes 2.2.1, and both precede 3.1.
+GitHub issue IDs remain stable.
+Each prerequisite must occur earlier in the order.
 
 ## .sct
 
@@ -92,7 +111,9 @@ A value that authenticates the sender and signed envelope fields. The recipient 
 
 ## Encrypted handoff
 
-A signed envelope for one recipient. Its ciphertext contains a secret, task, grant, acknowledgment, or result.
+A signed envelope for one recipient.
+Phase 2 encrypts secrets, grants, and delivery acknowledgments.
+Phase 3 adds encrypted tasks and execution results.
 
 ## Encrypted grant
 
@@ -100,7 +121,9 @@ A handoff payload that contains a credential and local access restrictions. Only
 
 ## Message ID
 
-A stable identifier reused across retries. Duplicate IDs cannot trigger another automatic execution.
+A stable identifier reused across retries.
+Phase 2 uses durable receipt records to prevent duplicate secret imports.
+Phase 3 also uses execution records to prevent repeated automatic execution.
 
 ## Correlation ID
 
@@ -151,7 +174,9 @@ A metadata record of submission, receipt, approval, execution, or expiry. It con
 
 ## Replay attack
 
-Repeated delivery of an old message. Deadline checks and durable duplicate records prevent automatic execution of the repeated request.
+Repeated delivery of an old message.
+Deadline checks and durable receipt records prevent repeated secret import.
+Phase 3 execution records also prevent repeated automatic execution.
 
 ## Redaction
 
