@@ -3,13 +3,15 @@ import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { rmSync } from 'node:fs'
+import { readdir } from 'node:fs/promises'
 import { ProjectStore } from './projects'
 import { Vault } from './vault'
 import { runProject } from './launch'
-import { runAgent } from './agent'
+import { runAgent, writeCliOutput } from './agent'
+import { AgentAccess } from './agent-access'
 import { streamEnvironment } from './runtime'
 import { Sharing } from './sharing'
-import { Relay, relayServer } from './relay-connection'
+import type { Relay } from './relay-connection'
 import type { Reply } from '../shared/api'
 
 let mainWindow: BrowserWindow | null = null
@@ -39,7 +41,7 @@ function handle(channel: string, operation: (...args: unknown[]) => unknown): vo
   })
 }
 
-async function createWindow(): Promise<void> {
+async function createWindow(hash = incomingFiles.length ? '/sharing' : undefined): Promise<void> {
   const window = new BrowserWindow({
     title: '.sct',
     width: 1000,
@@ -56,7 +58,7 @@ async function createWindow(): Promise<void> {
     }
   })
   mainWindow = window
-  window.once('ready-to-show', () => window.show())
+  window.once('ready-to-show', () => { if (!window.isDestroyed()) window.show() })
   window.webContents.on('did-finish-load', () => { void openIncomingFiles() })
   window.on('closed', () => { mainWindow = null })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -64,10 +66,17 @@ async function createWindow(): Promise<void> {
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   window.webContents.session.setPermissionCheckHandler(() => false)
 
-  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    await window.loadURL(`${process.env.ELECTRON_RENDERER_URL}${incomingFiles.length ? '#/sharing' : ''}`)
-  } else {
-    await window.loadFile(join(__dirname, '../renderer/index.html'), { hash: incomingFiles.length ? '/sharing' : undefined })
+  let closing = false
+  window.once('close', () => { closing = true })
+  try {
+    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+      await window.loadURL(`${process.env.ELECTRON_RENDERER_URL}${hash ? `#${hash}` : ''}`)
+    } else {
+      await window.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+    }
+  } catch (error) {
+    // Closing a window during its first load cancels loading without a startup failure.
+    if (!closing) throw error
   }
 }
 
@@ -88,11 +97,13 @@ nativeTheme.themeSource = 'dark'
 app.whenReady().then(async () => {
   if (launchArguments[0] === 'agent' || launchArguments[0] === 'mcp') {
     app.dock?.hide()
-    if (launchArguments[0] === 'agent') app.exit(runAgent(launchArguments))
-    else {
-      await (await import('./mcp')).runMcp(launchArguments)
-      app.exit(0)
-    }
+    app.exit(await runAgentSession())
+    return
+  }
+  if (launchArguments[0] === 'skills') {
+    if (launchArguments.length !== 1) throw new Error('Usage: sct skills. Return the bundled skill directory and names.')
+    await writeCliOutput(JSON.stringify({ directory: skillsDirectory(), skills: (await readdir(skillsDirectory())).filter((name) => name.startsWith('sct-')) }))
+    app.exit(0)
     return
   }
   const projects = new ProjectStore(join(app.getPath('userData'), 'projects.json'))
@@ -110,6 +121,7 @@ app.whenReady().then(async () => {
   }
   sharing = new Sharing(join(app.getPath('userData'), 'sharing'), vault, hostname().slice(0, 100))
   await sharing.cleanOutbox()
+  const { Relay, relayServer } = await import('./relay-connection')
   const relay = new Relay(relayServer(), join(app.getPath('userData'), 'relay', 'cache.sct'), sharing.deviceCard.bind(sharing),
     () => mainWindow?.webContents.send('relay:changed'))
   await relay.start()
@@ -143,13 +155,79 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow().catch(reportStartupError)
   })
 }).catch((error: unknown) => {
-  if (['run', '_env', 'agent', 'mcp'].includes(launchArguments[0])) {
+  if (['run', '_env', 'agent', 'mcp', 'skills'].includes(launchArguments[0])) {
     console.error(error instanceof Error ? error.message : 'The project command could not start.')
     app.exit(1)
   } else {
     reportStartupError(error)
   }
 })
+
+async function runAgentSession(): Promise<number> {
+  let access: AgentAccess | undefined
+  let loading: Promise<AgentAccess> | undefined
+  let sessionSharing: Sharing | undefined
+  let sharingReady: Promise<void> | undefined
+  let relay: Promise<Relay> | undefined
+  const getSharing = async () => {
+    await getAccess()
+    if (!sessionSharing) throw new Error('The local sharing service is unavailable.')
+    await (sharingReady ??= sessionSharing.cleanOutbox())
+    return sessionSharing
+  }
+  const getAccess = async (): Promise<AgentAccess> => {
+    loading ??= (async () => {
+      const projects = new ProjectStore(join(app.getPath('userData'), 'projects.json'))
+      const vault = new Vault(projects, join(app.getPath('userData'), 'settings.json'), homedir())
+      await vault.start()
+      sessionSharing = new Sharing(join(app.getPath('userData'), 'sharing'), vault, hostname().slice(0, 100))
+      access = new AgentAccess(projects, vault, {
+        review: async () => {
+          if (!mainWindow) await createWindow('/agent')
+          mainWindow?.show()
+          mainWindow?.focus()
+        },
+        changed: () => mainWindow?.webContents.send('agent:changed'),
+        sharing: getSharing,
+        shareFile: shareAgentFile,
+        relayState: async () => {
+          relay ??= (async () => {
+            const { Relay, relayServer } = await import('./relay-connection')
+            const service = new Relay(relayServer(), join(app.getPath('userData'), 'relay', 'cache.sct'),
+              async () => (await getSharing()).deviceCard(), () => undefined)
+            await service.start()
+            return service
+          })()
+          return (await relay).state()
+        },
+        executable: process.execPath,
+        demo: app.isPackaged ? join(process.resourcesPath, 'demo', 'index.cjs') : join(__dirname, '../demo/index.cjs')
+      })
+      return access
+    })().catch((error: unknown) => { loading = undefined; throw error })
+    return loading
+  }
+  handle('agent:requests', () => access?.views() ?? [])
+  handle('agent:respond', async (input) => {
+    if (!access) throw new Error('No agent request is awaiting approval.')
+    await access.respond(input)
+  })
+  app.on('window-all-closed', () => access?.cancelAll())
+  try {
+    const submit = async (input: unknown, signal?: AbortSignal) => (await getAccess()).submit(input, signal)
+    if (launchArguments[0] === 'agent') return await runAgent(launchArguments, submit)
+    await (await import('./mcp')).runMcp(launchArguments, submit, skillsDirectory())
+    return 0
+  } finally {
+    access?.disconnect()
+    if (relay) (await relay.catch(() => undefined))?.stop()
+    mainWindow?.destroy()
+  }
+}
+
+function skillsDirectory(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'skills') : join(__dirname, '../../skills')
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
@@ -196,6 +274,16 @@ function showShareMenu(path: string): void {
   if (process.platform !== 'darwin') throw new Error('AirDrop sharing requires macOS.')
   // A closed share menu does not confirm transport completion or recipient import.
   new ShareMenu({ filePaths: [path] }).popup({ window: mainWindow })
+}
+
+function shareAgentFile(path: string): Promise<void> {
+  const window = mainWindow
+  if (!window) throw new Error('The .sct approval window is unavailable.')
+  if (process.platform !== 'darwin') throw new Error('AirDrop sharing requires macOS.')
+  return new Promise((resolve) => {
+    // A CLI session must keep the native menu alive until the user finishes choosing a transport.
+    new ShareMenu({ filePaths: [path] }).popup({ window, callback: resolve })
+  })
 }
 
 function sharingChanged(): void {
