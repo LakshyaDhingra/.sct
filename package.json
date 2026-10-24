@@ -19,10 +19,11 @@
     "build": "bun run typecheck:tsc && electron-vite build",
     "package:mac": "bun run build && bun scripts/package-macos.ts",
     "lint": "eslint . --max-warnings 0",
-    "test": "cd tests && bun test projects.test.ts",
+    "test": "cd tests && bun test projects.test.ts vault.test.ts",
     "test:ui": "bun run build && cd tests && playwright test --config ../playwright.config.ts"
   },
   "dependencies": {
+    "@napi-rs/keyring": "^2.1.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

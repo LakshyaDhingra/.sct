@@ -1,5 +1,6 @@
 import { _electron as electron, expect, test } from '@playwright/test'
-import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises'
+import type { Page } from '@playwright/test'
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,6 +10,8 @@ test('adds existing folders offline and restores projects after restart', async 
   const userData = join(root, 'app-data')
   await mkdir(folder)
   await mkdir(userData)
+  // The vault root points into the temporary folder, so the test never creates ~/.sct.
+  await writeFile(join(userData, 'settings.json'), JSON.stringify({ vaultRoot: root }))
   const launch = () => electron.launch({ args: [join(__dirname, 'electron-entry.cjs'), userData] })
   let application = await launch()
 
@@ -31,7 +34,8 @@ test('adds existing folders offline and restores projects after restart', async 
     expect(await page.evaluate(() => ({ process: 'process' in window, require: 'require' in window })))
       .toEqual({ process: false, require: false })
     expect(await page.evaluate(() => Object.keys(window.sct).sort()))
-      .toEqual(['addProject', 'listProjects', 'pickDirectory'])
+      .toEqual(['addProject', 'addSecret', 'chooseVaultLocation', 'deleteProject', 'deleteSecret', 'getVaultLocation',
+        'listProjects', 'listSecrets', 'pickDirectory', 'renameProject', 'updateSecret'])
 
     await page.getByRole('button', { name: 'Add a project', exact: true }).click()
     await application.evaluate(({ dialog }) => {
@@ -70,6 +74,110 @@ test('adds existing folders offline and restores projects after restart', async 
     const restored = await application.firstWindow()
     await expect(restored.getByRole('list', { name: 'Projects' })).toContainText('Example project')
     await expect(restored.getByRole('listitem')).toHaveCount(1)
+  } finally {
+    await application.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('manages secrets per project without rendering stored values', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'sct-secrets-ui-')))
+  const folder = join(root, 'Demo folder')
+  const userData = join(root, 'app-data')
+  await mkdir(folder)
+  await mkdir(userData)
+  await writeFile(join(userData, 'settings.json'), JSON.stringify({ vaultRoot: root }))
+  const value = `sk-test-${Date.now()}`
+  const launch = () => electron.launch({ args: [join(__dirname, 'electron-entry.cjs'), userData] })
+  let application = await launch()
+  const messages: string[] = []
+  const watch = (page: Page) => {
+    page.on('pageerror', (error) => messages.push(`error: ${error.message}`))
+    page.on('console', (message) => messages.push(`${message.type()}: ${message.text()}`))
+  }
+
+  try {
+    let page = await application.firstWindow()
+    watch(page)
+    await page.getByRole('button', { name: 'Add a project', exact: true }).click()
+    await page.getByLabel('Project name').fill('Demo')
+    await page.getByLabel('Folder path').fill(folder)
+    await page.getByRole('button', { name: 'Add project', exact: true }).click()
+    await expect(page.getByRole('list', { name: 'Projects' })).toContainText('0 secrets')
+    expect(await readdir(join(root, '.sct'))).toEqual(['Demo'])
+
+    await page.getByRole('link', { name: 'Open secrets' }).click()
+    await expect(page.getByRole('heading', { name: 'Demo', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'No secrets in Demo' })).toBeVisible()
+    await page.getByLabel('Name').fill('OPENAI_API_KEY')
+    await page.getByLabel('Value', { exact: true }).fill(value)
+    await page.getByRole('button', { name: 'Save secret' }).click()
+    await expect(page.getByRole('status').first()).toHaveText('OPENAI_API_KEY was saved in Demo.')
+    await expect(page.getByLabel('Value', { exact: true })).toHaveValue('')
+    await expect(page.getByLabel('Name')).toHaveValue('')
+    await expect(page.getByRole('list', { name: 'Secrets in Demo' })).toContainText('OPENAI_API_KEY')
+    await page.screenshot({ path: test.info().outputPath('project-secrets.png') })
+
+    await page.getByLabel('Name').fill('OPENAI_API_KEY')
+    await page.getByLabel('Value', { exact: true }).fill(value)
+    await page.getByRole('button', { name: 'Save secret' }).click()
+    await expect(page.getByRole('alert')).toContainText('already exists')
+    await expect(page.getByLabel('Value', { exact: true })).toHaveValue('')
+
+    await page.getByRole('button', { name: 'Update value' }).click()
+    await page.getByLabel('New value for OPENAI_API_KEY').fill(`${value}-updated`)
+    await page.getByRole('button', { name: 'Save value' }).click()
+    await expect(page.getByRole('status').first()).toHaveText('The value of OPENAI_API_KEY was updated.')
+
+    const file = await readFile(join(root, '.sct', 'Demo', 'secrets.sct'))
+    expect(file.includes(value) || file.includes('OPENAI_API_KEY')).toBe(false)
+    expect(await page.content()).not.toContain(value)
+
+    await page.getByRole('link', { name: 'All secrets' }).click()
+    await expect(page.getByRole('heading', { name: 'All secrets', exact: true })).toBeVisible()
+    await expect(page.getByRole('list', { name: 'Secrets in Demo' })).toContainText('OPENAI_API_KEY')
+    await page.screenshot({ path: test.info().outputPath('all-secrets.png') })
+
+    await application.evaluate(({ dialog }, selected) => {
+      Object.assign(dialog, { showOpenDialog: async () => ({ canceled: false, filePaths: [selected] }) })
+    }, join(root, 'moved'))
+    await mkdir(join(root, 'moved'))
+    await page.getByRole('link', { name: 'Storage' }).click()
+    await expect(page.getByRole('heading', { name: 'Storage', exact: true })).toBeVisible()
+    await expect(page.getByText(join(root, '.sct'), { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Change location…' }).click()
+    await expect(page.getByRole('status').first()).toHaveText(`The vault moved to ${join(root, 'moved', '.sct')}.`)
+    expect(await readdir(join(root, 'moved', '.sct'))).toEqual(['Demo'])
+    await page.screenshot({ path: test.info().outputPath('storage.png') })
+
+    await application.close()
+    application = await launch()
+    page = await application.firstWindow()
+    watch(page)
+    await page.getByRole('link', { name: 'All secrets' }).click()
+    await expect(page.getByRole('heading', { name: 'All secrets', exact: true })).toBeVisible()
+    await expect(page.getByRole('list', { name: 'Secrets in Demo' })).toContainText('OPENAI_API_KEY')
+
+    await page.getByRole('link', { name: 'Projects', exact: true }).click()
+    await page.getByRole('button', { name: 'Rename' }).click()
+    await page.getByLabel('New name for Demo').fill('Renamed')
+    await page.getByRole('button', { name: 'Save name' }).click()
+    await expect(page.getByRole('list', { name: 'Projects' })).toContainText('Renamed')
+    expect(await readdir(join(root, 'moved', '.sct'))).toEqual(['Renamed'])
+
+    await page.getByRole('link', { name: 'Open secrets' }).click()
+    await page.getByRole('button', { name: 'Delete', exact: true }).click()
+    await page.getByRole('button', { name: 'Delete secret' }).click()
+    await expect(page.getByRole('heading', { name: 'No secrets in Renamed' })).toBeVisible()
+
+    await page.getByRole('link', { name: 'Projects', exact: true }).click()
+    await page.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Delete project' })).toBeDisabled()
+    await page.getByLabel('Type Renamed to confirm').fill('Renamed')
+    await page.getByRole('button', { name: 'Delete project' }).click()
+    await expect(page.getByRole('heading', { name: 'Your projects start here' })).toBeVisible()
+    expect(await readdir(join(root, 'moved', '.sct'))).toEqual([])
+    expect(messages.filter((message) => message.startsWith('error') || message.includes(value))).toEqual([])
   } finally {
     await application.close()
     await rm(root, { recursive: true, force: true })
