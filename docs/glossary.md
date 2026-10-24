@@ -1,214 +1,89 @@
-# .sct technical glossary
+# .sct glossary
 
-These terms describe the development plan. Implementation checks must establish the stated behavior.
+## Local
 
-Local runtime injection in #32 precedes relay setup.
-Relay sharing and local Agent Access then proceed independently.
-Only integration issue #33 depends on both branches.
-See the [implementation order](architecture.md#implementation-order).
+**.sct** — The Electron, React, and TypeScript app in this repository. It manages local secrets and encrypted handoffs between Macs.
 
-## .sct
+**Signing identity** — The `.sct Development` certificate and private key in Keychain. A stable signature keeps Keychain access after rebuilds. See [macOS signing](macos-signing.md).
 
-The Electron, React, and TypeScript app in this repository. It manages local credentials and encrypted device handoffs.
+**Keychain** — The macOS service that protects value keys, file keys, device private keys, and the relay token.
 
-## App signing identity
+**Local vault** — The encrypted `secrets.sct` files and their Keychain keys. It works offline. See [vault storage](storage.md).
 
-<a id="signing-identity"></a>
+**Electron main process** — The trusted process for vault access, encryption, process launch, sharing, relay connections, and Agent Access. .sct runs no separate daemon.
 
-A certificate and private key that identify the macOS app. Keep the signing private key outside Git.
+**Renderer** — The sandboxed process that shows the React UI. It receives metadata only and never a stored value.
 
-## Stable code signature
+**IPC** — The narrow preload bridge from the renderer to main-process operations. The main process accepts calls only from the app page.
 
-The app uses the same development signing identity after rebuilds. Test Keychain access after a signed rebuild.
+**Injection** — Passing project secrets into a child process environment before it starts. The process and its descendants can read or copy the values.
 
-## Keychain
+**CLI** — The `sct` command. `sct run -- <command>` injects secrets. `sct agent` sends Agent Access requests.
 
-The macOS service that protects credentials, device private keys, and keys for encrypted local files.
+**TypeScript SDK** — The dependency-free `@sct/env` package. `await loadEnv()` keeps `process.env` current. `onChange` lets an app recreate clients that keep credentials.
 
-## Local vault
-
-The device's Keychain-backed credential storage. Any secret files contain ciphertext. Local access remains available during relay outages.
-
-## SpacetimeDB
-
-The cloud-hosted relay for persisted ciphertext, routing metadata, grants, and delivery status. Device subscriptions receive authorized rows.
-
-## Relay
-
-A service that persists and routes encrypted messages. It does not receive the keys needed to decrypt payloads.
-
-## Subscription
-
-A connection that receives database updates. Server-side authorization limits which messages a device can receive.
-
-## TLS
-
-Transport Layer Security protects the relay connection. Payload encryption separately protects message contents from the relay.
-
-## Server-side authorization
-
-Relay checks that bind operations to an authenticated device identity. These checks restrict reads, subscriptions, writes, and status changes.
-
-## Electron main process
-
-The trusted TypeScript process for vault access, encryption, relay connections, expiry checks, and approved process launch.
-.sct uses no separate application daemon.
-
-## IPC
-
-Inter-process communication. A narrow preload bridge connects the renderer to approved main-process operations.
-CLI requests also require a restricted local channel to the Electron app.
-
-## Renderer
-
-The Electron process that displays the React UI. It clears entered secret values after submission and never receives stored values.
-
-## CLI
-
-Command-line interface. `sct run -- <command>` selects a registered project from the current folder and injects its secrets.
-Saved key changes automatically restart that command.
-Later Agent Access commands remain separate from this user-invoked runtime path.
-
-## TypeScript SDK
-
-The dependency-free `@sct/env` package provides `await loadEnv()` for trusted server-side code.
-It receives project secrets through a signed helper's private process pipes and keeps `process.env` current.
-Its `onChange` callback lets applications recreate clients that retain credentials during initialization.
-
-## MCP
-
-Model Context Protocol. Claude Code uses narrow tools to request authorized .sct actions.
-
-## Local approval
-
-The recipient user's decision before agent execution. A relay message or agent cannot approve its own launch.
-
-## Injection
-
-Passing project secrets into a child process environment before startup.
-The process and its descendants can read or copy the values.
-Issue #32 provides the local runner without .env or equivalent project files.
-Issue #8 reuses that runner for approved agents.
-See [runtime injection](runtime-injection.md).
-
-## Loader compatibility
-
-Using existing environment variables with an application's normal runtime or loader.
-This does not make the encrypted secrets.sct file readable by a .env parser.
-Applications that require file contents can need changes.
+**Loader compatibility** — Existing loaders read inherited environment variables. A `.env` parser cannot read `secrets.sct`.
 
 ## Agent Access
 
-Local project authorization, approval, agent execution, and MCP operations.
-This branch has no relay dependency.
-Issue #33 later integrates remote tasks and received grants.
+**Agent Access** — Local operations that an agent requests through the CLI or MCP. Each request needs local approval. It has no relay dependency.
 
-## Secret boundary
+**MCP** — Model Context Protocol. `sct mcp` exposes the nine operations as tools, prompts, and skill resources.
 
-The rules that limit which processes receive secret values. An approved process can copy a credential it receives.
+**Caller authentication** — .sct finds the first listed agent among the parent processes and checks its code signature. An impostor is rejected. An unverified caller needs an extra confirmation.
 
-## Device identity
+**Local approval** — The user's decision in the .sct window. It applies to one request. An agent or relay message cannot approve its own request.
 
-A device's signing and encryption keys, bound to its authenticated relay identity. Private keys remain in the local vault.
+**Secret boundary** — The rules that limit which processes receive secret values. An approved process can copy a value that it receives.
 
-## Pairing
+## Sharing
 
-Both users compare a code derived from their device keys. Each device pins the verified peer keys before sharing.
+**Device identity** — A Mac's X25519 encryption key and Ed25519 signing key. The private keys stay in Keychain.
 
-## Digital signature
+**Device card** — A `.sct-device` file with a device's public keys. It contains no secret.
 
-A value that authenticates the sender and signed envelope fields. The recipient checks it using the pinned sender key.
+**Pairing** — Both users compare a code derived from both devices' keys. Each device then saves the verified peer keys.
 
-## Admin
+**Transfer package** — A `.sct-transfer` file. It holds selected secrets, encrypted and signed for one verified device. It expires after 24 hours.
 
-The user who publishes a secret. Any user can be the admin of a secret that they publish.
+**AirDrop** — The macOS transport that the working sharing flow uses. .sct opens only the AirDrop picker.
 
-## Encrypted handoff
+**Relay** — Cloud-hosted SpacetimeDB that persists and routes ciphertext. It never receives the keys that decrypt payloads. See [relay setup](relay.md).
 
-A signed envelope for one or more recipients.
-Phase 2 encrypts secrets, grants, and delivery acknowledgments.
-Integration issue #33 adds encrypted tasks and execution results.
+**Subscription** — A relay connection that receives the rows that server-side authorization permits.
 
-## Encrypted grant
+**TLS** — Protects each relay connection. Payload encryption separately protects contents from the relay.
 
-A handoff payload that contains a credential and local access restrictions. Only the intended recipient decrypts it.
+## Planned relay delivery
 
-## Message key
+These terms describe Phase 2 and issue #33. See the [architecture](architecture.md).
 
-A new random key that encrypts the payload of one message.
-The sender encrypts the message key separately for each recipient. The encrypted copy is the wrapped key.
+**Admin** — The user who publishes a secret.
 
-## Message ID
+**Encrypted handoff** — A signed envelope for one or more recipients. Phase 2 carries secrets, grants, and acknowledgments. Issue #33 adds tasks and results.
 
-A stable identifier reused across retries.
-Phase 2 uses durable receipt records to prevent duplicate secret imports.
-Integration issue #33 also uses execution records to prevent repeated automatic execution.
+**Message key** — A new random key for one message. The sender encrypts it for each recipient. That copy is the wrapped key.
 
-## Correlation ID
+**Message ID** — A stable ID that retries reuse. Receipt records prevent a second import.
 
-The original handoff ID included in acknowledgments and results. It connects replies to the sender's request.
+**Correlation ID** — The original handoff ID in a reply.
 
-## Delivery acknowledgment
+**Delivery acknowledgment** — An encrypted, authenticated reply that confirms durable receipt. It does not confirm execution.
 
-<a id="signed-acknowledgement"></a>
+**Grant** — An authorization for a recipient, a credential, a permitted operation, and an absolute deadline.
 
-An encrypted, authenticated reply confirming durable receipt. It does not confirm execution success.
+**Injection-only grant** — A received grant that permits approved injection only. It denies reveal, copy, and reshare.
 
-## Execution result
+**Message expiry** — After this deadline, a message cannot be delivered or executed. It cannot revoke a delivered credential.
 
-An encrypted, correlated reply containing an approved outcome or redacted result. It excludes credentials and unrestricted logs.
+**Access expiry** — After this deadline, a grant blocks new vault use. Cleanup removes grant material at startup or wake. It cannot remove external copies.
 
-## Execution claim
+**Execution claim** — A durable record written before a remote task launches. A claim without an outcome after a crash needs local review.
 
-A durable local record written before launch. A claim without a known outcome requires local review after a crash.
+**Execution result** — An encrypted reply with an approved outcome. It contains no credential or unrestricted log.
 
-## Duplicate-execution protection
+**Replay attack** — A repeated delivery of an old message. Deadlines, receipt records, and execution records block it.
 
-Durable message IDs, execution claims, and outcomes that prevent retries from automatically starting the same task again.
+**Redaction** — Removing recognized secret values from output. It does not make arbitrary output safe.
 
-## Grant
-
-An authorization record for a recipient, credential, permitted operation, and absolute access deadline.
-
-## Injection-only grant
-
-A permission that allows approved process injection. .sct denies reveal, copy, and reshare for received grants.
-
-## TTL
-
-Time to live. Convert it to an absolute deadline. Distinguish message delivery deadlines from grant access deadlines.
-
-## Message expiry
-
-The deadline after which a message cannot be delivered or executed. It does not revoke a credential already delivered.
-
-## Access expiry
-
-The grant deadline that blocks new vault use. Local cleanup removes grant material and queues a notification for the sender.
-Cleanup resumes at startup or wake. It cannot remove external copies or a running process's environment.
-
-## Audit event
-
-A metadata record of submission, receipt, approval, execution, or expiry. It contains no secret value or plaintext task output.
-
-## Replay attack
-
-Repeated delivery of an old message.
-Deadline checks and durable receipt records prevent repeated secret import.
-Integration issue #33 adds execution records to prevent repeated automatic execution.
-
-## Redaction
-
-Removing recognized secret values from output before display or transmission. It does not make arbitrary agent output safe.
-
-## AirDrop
-
-A deferred transport for the same encrypted handoff format. Issue #22 is outside MVP scope.
-
-## Droid
-
-Factory's coding agent. Its integration remains post-MVP in issue #23.
-
-## Threat model
-
-The protected data, trusted processes, possible attackers, and limits of the design. Message expiry cannot revoke delivered credentials.
+**Droid** — Factory's coding agent. Its integration is post-MVP work in #23.
