@@ -40,6 +40,11 @@ export class Sharing {
     })
   }
 
+  // The relay registers the same public keys as the AirDrop device card.
+  async deviceCard(): Promise<DeviceCard> {
+    return (await this.getIdentity()).card
+  }
+
   deviceCardFile(): Promise<string> {
     return this.serialize(async () => {
       await mkdir(join(this.root, 'outbox'), { recursive: true, mode: 0o700 })
