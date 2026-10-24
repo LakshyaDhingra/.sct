@@ -1,0 +1,99 @@
+/* Hallmark: app screen; theme: Terminal by request; signature: local project paths; genre: atmospheric; v2.0.0. */
+/* Review: retain the project form and list. Use the supplied palette and square surfaces. */
+@font-face {
+  font-family: "Martian Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-stretch: 75% 112.5%;
+  font-display: swap;
+  src: url("@fontsource-variable/martian-mono/files/martian-mono-latin-standard-normal.woff2") format("woff2-variations");
+}
+
+:root {
+  --color-paper: oklch(12.5% 0.012 150);
+  --color-paper-2: oklch(16% 0.016 150);
+  --color-paper-3: oklch(20.5% 0.022 150);
+  --color-ink: oklch(94% 0.03 140);
+  --color-ink-2: oklch(82% 0.05 142);
+  --color-muted: oklch(64% 0.06 145);
+  --color-rule: oklch(27% 0.028 148);
+  --color-rule-2: oklch(38% 0.045 146);
+  --color-accent: oklch(87% 0.2 142);
+  --color-accent-ink: oklch(14% 0.02 150);
+  --color-focus: var(--color-accent);
+  --color-accent-wash: oklch(23% 0.06 145);
+  --font-display: "Martian Mono", ui-monospace, monospace;
+  --font-body: var(--font-display);
+  --display-weight: 500;
+  --stretch-display: 112.5%;
+  --stretch-body: 87.5%;
+  --tracking-display: -0.02em;
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-ink);
+  background: var(--color-paper);
+  color-scheme: dark;
+  scrollbar-color: var(--color-rule-2) var(--color-paper);
+  caret-color: var(--color-accent);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+html, body { overflow-x: clip; }
+body { margin: 0; font-stretch: var(--stretch-body); font-variant-numeric: tabular-nums; line-height: 1.65; }
+button, input { font: inherit; }
+button { min-height: 44px; border: 1px solid var(--color-accent); border-radius: 0; padding: 8px 16px; background: var(--color-accent); color: var(--color-accent-ink); font-size: 12px; font-weight: 500; cursor: pointer; }
+button:hover { background: var(--color-ink); border-color: var(--color-ink); }
+button:active { background: var(--color-ink-2); border-color: var(--color-ink-2); }
+button:disabled { background: var(--color-paper-3); border-color: var(--color-rule-2); color: var(--color-muted); cursor: default; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; }
+::selection { background: var(--color-accent-wash); color: var(--color-ink); }
+.app { max-width: 1200px; min-height: 100vh; margin: 0 auto; border-inline: 1px solid var(--color-rule); }
+.app-header { display: flex; align-items: center; justify-content: space-between; min-height: 54px; padding: 0 32px; border-bottom: 1px solid var(--color-rule); background: var(--color-paper-2); }
+.header-start { display: flex; align-self: stretch; align-items: stretch; }
+.wordmark { display: flex; align-items: center; padding: 0 20px; background: var(--color-accent); color: var(--color-accent-ink); font-weight: 700; font-size: 16px; }
+.current-page { display: flex; align-items: center; border-right: 1px solid var(--color-rule); padding: 0 24px; color: var(--color-ink-2); font-size: 12px; }
+.local-label { color: var(--color-muted); font-size: 11px; }
+main { max-width: 1080px; margin: 0 auto; padding: 64px 40px 32px; }
+.page-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 40px; }
+h1, h2 { text-wrap: balance; min-width: 0; overflow-wrap: break-word; font-weight: var(--display-weight); font-stretch: var(--stretch-display); letter-spacing: var(--tracking-display); line-height: 1.12; }
+h1 { font-size: 34px; margin: 0 0 16px; }
+h2 { font-size: 18px; margin: 0 0 16px; }
+.description, .project-form > p { color: var(--color-ink-2); font-size: 15px; margin: 0; }
+.empty-state { min-height: 300px; display: flex; flex-direction: column; justify-content: center; border-block: 1px solid var(--color-rule); padding: 44px 32px; background: var(--color-paper-2); }
+.empty-state p { color: var(--color-ink-2); font-size: 15px; margin: 0; }
+.empty-state .empty-note { color: var(--color-muted); font-size: 11px; margin-top: 28px; }
+.project-form { border: 1px solid var(--color-rule-2); background: var(--color-paper-2); padding: 28px; margin-bottom: 28px; }
+fieldset { border: 0; margin: 28px 0 0; padding: 0; min-width: 0; }
+label { display: block; color: var(--color-ink-2); font-size: 12px; margin: 24px 0 12px; }
+label:first-child { margin-top: 0; }
+input { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--color-rule-2); border-radius: 0; background: var(--color-paper); color: var(--color-ink); font-size: 13px; }
+input::placeholder { color: var(--color-muted); }
+input:hover { border-color: var(--color-ink-2); }
+input:disabled { color: var(--color-muted); }
+.folder-field { display: flex; gap: 12px; }
+.folder-field input { min-width: 0; }
+.folder-field button { white-space: nowrap; }
+.secondary { border-color: var(--color-ink-2); background: var(--color-paper-2); color: var(--color-ink-2); }
+.secondary:hover { background: var(--color-paper-3); color: var(--color-ink); }
+.field-help { color: var(--color-muted); font-size: 11px; margin: 12px 0 0; }
+.form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 32px; }
+.project-list { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--color-rule-2); }
+.project-list li { display: flex; align-items: center; gap: 24px; border-bottom: 1px solid var(--color-rule); background: var(--color-paper-2); padding: 24px; }
+.project-list li > div { min-width: 0; flex: 1; }
+.project-list h2 { font-size: 15px; margin-bottom: 12px; }
+.project-list p { margin: 0; color: var(--color-ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.project-tag { color: var(--color-muted); font-size: 11px; white-space: nowrap; }
+.error { border-left: 2px solid var(--color-accent); background: var(--color-accent-wash); color: var(--color-ink); padding: 16px 20px; font-size: 13px; }
+footer { color: var(--color-muted); font-size: 10px; margin-top: 32px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media (max-width: 700px) {
+  main { padding: 40px 24px 24px; }
+  .app-header { padding-inline: 24px; }
+  .page-heading { align-items: flex-start; flex-wrap: wrap; }
+  .project-tag { display: none; }
+  .folder-field { flex-direction: column; }
+  .folder-field button { align-self: flex-start; }
+  .empty-state { padding-inline: 24px; }
+}
