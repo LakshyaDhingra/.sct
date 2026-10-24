@@ -3,6 +3,8 @@ import type { Page } from '@playwright/test'
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 
 test('adds existing folders offline and restores projects after restart', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'sct-ui-')))
@@ -110,7 +112,7 @@ test('manages secrets per project without rendering stored values', async () => 
     await expect(page.getByRole('heading', { name: 'Demo', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'No secrets in Demo' })).toBeVisible()
     await page.getByLabel('Name').fill('OPENAI_API_KEY')
-    await page.getByLabel('Value', { exact: true }).fill(value)
+    await expect(page.getByRole('button', { name: 'Save secret' })).toBeEnabled()
     await page.getByRole('button', { name: 'Save secret' }).click()
     await expect(page.getByRole('status').first()).toHaveText('OPENAI_API_KEY was saved in Demo.')
     await expect(page.getByLabel('Value', { exact: true })).toHaveValue('')
@@ -128,6 +130,10 @@ test('manages secrets per project without rendering stored values', async () => 
     await expect(page.getByRole('alert')).toContainText('already exists')
     await expect(page.getByLabel('Value', { exact: true })).toHaveValue('')
 
+    await page.getByRole('button', { name: 'Update value' }).click()
+    await expect(page.getByRole('button', { name: 'Save value' })).toBeEnabled()
+    await page.getByRole('button', { name: 'Save value' }).click()
+    await expect(page.getByRole('status').first()).toHaveText('The value of OPENAI_API_KEY was updated.')
     await page.getByRole('button', { name: 'Update value' }).click()
     await page.getByLabel('New value for OPENAI_API_KEY').fill(`${value}-updated`)
     await page.getByRole('button', { name: 'Save value' }).click()
@@ -168,6 +174,41 @@ test('manages secrets per project without rendering stored values', async () => 
     await page.getByRole('button', { name: 'Save name' }).click()
     await expect(page.getByRole('list', { name: 'Projects' })).toContainText('Renamed')
     expect(await readdir(join(root, 'moved', '.sct'))).toEqual(['Renamed'])
+
+    const cli = spawn(application.process().spawnfile, [join(__dirname, 'electron-entry.cjs'), userData,
+      'run', 'Renamed', '--', process.execPath, '-e', `
+        const assert = require('node:assert/strict')
+        assert.equal(require('node:crypto').createHash('sha256').update(process.env.OPENAI_API_KEY).digest('hex'), process.argv[1])
+        assert.equal(process.cwd(), process.argv[2])
+        assert.deepEqual(require('node:fs').readdirSync('.'), [])
+        process.stdout.write('runtime-ok')
+      `, createHash('sha256').update(`${value}-updated`).digest('hex'), folder])
+    const output: string[] = []
+    cli.stdout.on('data', (data: Buffer) => output.push(data.toString()))
+    cli.stderr.on('data', (data: Buffer) => output.push(data.toString()))
+    expect(await new Promise((resolve, reject) => { cli.once('close', resolve); cli.once('error', reject) })).toBe(0)
+    expect(output.join('')).toContain('runtime-ok')
+    expect(output.join('')).not.toContain(value)
+    expect(await readdir(folder)).toEqual([])
+
+    const interrupted = spawn(application.process().spawnfile, [join(__dirname, 'electron-entry.cjs'), userData,
+      'run', 'Renamed', '--', process.execPath, '-e',
+      "process.on('SIGTERM', () => process.exit(37)); console.log('ready'); setInterval(() => {}, 1000)"])
+    const interruptedExit = new Promise((resolve, reject) => {
+      interrupted.once('close', resolve)
+      interrupted.once('error', reject)
+    })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        interrupted.stdout.once('data', () => resolve())
+        interrupted.once('error', reject)
+        interrupted.once('close', () => reject(new Error('The command exited before readiness.')))
+      })
+      interrupted.kill('SIGTERM')
+      expect(await interruptedExit).toBe(37)
+    } finally {
+      interrupted.kill('SIGKILL')
+    }
 
     await page.getByRole('link', { name: 'Open secrets' }).click()
     await page.getByRole('button', { name: 'Delete', exact: true }).click()

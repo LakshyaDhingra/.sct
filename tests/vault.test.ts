@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { spawn } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +9,7 @@ import type { TestContext } from 'node:test'
 import { AsyncEntry } from '@napi-rs/keyring'
 import { ProjectStore } from '../src/main/projects.ts'
 import { Vault } from '../src/main/vault.ts'
+import { launchProject, runProject } from '../src/main/launch.ts'
 
 // Each test uses real macOS Keychain under its own service, and removes every item that it created.
 async function setup(t: TestContext) {
@@ -139,12 +141,120 @@ test('invalid secrets and duplicate names do not change the vault', async (t) =>
   const secret = await vault.addSecret({ projectId: project.id, name: 'TOKEN', value: 'one' })
   await assert.rejects(vault.addSecret({ projectId: project.id, name: 'TOKEN', value: 'two' }), /already exists/)
   for (const input of [null, {}, { projectId: project.id, name: '1TOKEN', value: 'x' },
-    { projectId: project.id, name: 'BAD-NAME', value: 'x' }, { projectId: project.id, name: 'EMPTY', value: '' },
+    { projectId: project.id, name: 'BAD-NAME', value: 'x' }, { projectId: project.id, name: 'NULL', value: 'bad\0value' },
     { projectId: 'missing', name: 'OTHER', value: 'x' }]) {
     await assert.rejects(vault.addSecret(input))
   }
   await assert.rejects(vault.updateSecret({ projectId: project.id, id: 'missing', value: 'x' }), /does not exist/)
   assert.deepEqual(await vault.listSecrets(), [secret])
+})
+
+test('project launches preserve literal values before imports and keep the parent environment unchanged', async (t) => {
+  const { open, folder } = await setup(t)
+  const vault = await open()
+  const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
+  const other = await vault.addProject({ name: 'Other', directory: await folder('other') })
+  const value = ` spaces "quotes" $dollars = equals\nnext line 🔑 ${randomUUID()}`
+  await vault.addSecret({ projectId: project.id, name: 'SCT_TOKEN', value })
+  await vault.addSecret({ projectId: project.id, name: 'SHELL', value: 'project-shell' })
+  await vault.addSecret({ projectId: project.id, name: 'EMPTY', value: '' })
+  await vault.addSecret({ projectId: other.id, name: 'SCT_OTHER_PROJECT', value: randomUUID() })
+  await writeFile(join(project.directory, 'preload.cjs'), `
+    const assert = require('node:assert/strict')
+    assert.equal(require('node:crypto').createHash('sha256').update(process.env.SCT_TOKEN).digest('hex'), process.argv[2])
+    assert.equal(process.env.EMPTY, '')
+    assert.equal(process.env.SHELL, 'project-shell')
+    assert.equal(process.env.SCT_OTHER_PROJECT, undefined)
+    assert.equal(process.env.PATH, process.argv[3])
+    assert.equal(process.cwd(), process.argv[4])
+    assert.deepEqual(require('node:fs').readdirSync('.').sort(), ['check.cjs', 'preload.cjs'])
+  `)
+  await writeFile(join(project.directory, 'check.cjs'), `
+    process.stdin.on('data', (data) => { process.stdout.write(data); process.stderr.write('stderr-ok') })
+  `)
+  const parent = { ...process.env }
+  const child = await launchProject(vault, project.id, 'node', ['-r', './preload.cjs', './check.cjs',
+    createHash('sha256').update(value).digest('hex'), process.env.PATH ?? '', project.directory], 'pipe')
+  const stdout: Buffer[] = []
+  const stderr: Buffer[] = []
+  child.stdout?.on('data', (data: Buffer) => stdout.push(data))
+  child.stderr?.on('data', (data: Buffer) => stderr.push(data))
+  child.stdin?.end('stdin-ok')
+  assert.equal(await new Promise((resolve) => child.once('close', resolve)), 0, Buffer.concat(stderr).toString())
+  assert.equal(Buffer.concat(stdout).toString(), 'stdin-ok')
+  assert.equal(Buffer.concat(stderr).toString(), 'stderr-ok')
+  assert.ok(!child.spawnargs.join(' ').includes(value))
+  assert.deepEqual(process.env, parent)
+  assert.deepEqual((await readdir(project.directory)).sort(), ['check.cjs', 'preload.cjs'])
+})
+
+test('launches resolve renamed projects and moved storage, and preserve command exit status', async (t) => {
+  const { root, open, folder } = await setup(t)
+  const vault = await open()
+  const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
+  await vault.addSecret({ projectId: project.id, name: 'EMPTY', value: '' })
+  await vault.renameProject({ id: project.id, name: 'Renamed' })
+  await vault.moveTo(await folder('new-root'))
+  const projects = new ProjectStore(join(root, 'app-data', 'projects.json'))
+  assert.equal(await runProject(projects, await open(), ['run', 'Renamed', '--', 'node', '-e',
+    "require('node:assert/strict').equal(process.env.EMPTY, ''); process.exit(23)"]), 23)
+  assert.equal(await runProject(projects, await open(), ['run', 'Renamed', '--', 'node', '-e',
+    "process.kill(process.pid, 'SIGTERM')"]), 143)
+  await assert.rejects(runProject(projects, vault, ['run', 'Demo', '--', 'node']), /not in your project list/)
+  await assert.rejects(runProject(projects, vault, ['run', 'Renamed']), /Usage:/)
+})
+
+test('launches fail before execution when the vault, required keys, command, or source folder is missing', async (t) => {
+  const { root, service, open, keychainKey, folder } = await setup(t)
+  const vault = await open()
+  const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
+  const marker = join(root, 'must-not-exist')
+  const commandArgs = ['-e', "require('node:fs').writeFileSync(process.argv[1], 'launched')", marker]
+  await assert.rejects(launchProject(vault, project.id, 'node', commandArgs), /Cannot read the secrets/)
+  await assert.rejects(launchProject(vault, 'missing', 'node', commandArgs), /not in your project list/)
+  const secret = await vault.addSecret({ projectId: project.id, name: 'TOKEN', value: randomUUID() })
+  for (const account of ['file', secret.id]) {
+    const key = await keychainKey(`${project.id}/${account}`)
+    assert.ok(key)
+    const entry = new AsyncEntry(service, `${project.id}/${account}`)
+    await entry.deleteCredential()
+    await assert.rejects(launchProject(vault, project.id, 'node', commandArgs), /Keychain key .* is missing/)
+    await entry.setSecret(Buffer.from(key))
+  }
+  await assert.rejects(launchProject(vault, project.id, 'sct-command-that-does-not-exist', []), /Cannot start the command/)
+  await rm(project.directory, { recursive: true })
+  await assert.rejects(launchProject(vault, project.id, 'node', commandArgs), /Cannot start the command/)
+  await assert.rejects(stat(marker), { code: 'ENOENT' })
+})
+
+test('the terminal entrypoint forwards interruption and termination to the command', { timeout: 15_000 }, async (t) => {
+  const { root, service, open, folder } = await setup(t)
+  const vault = await open()
+  const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
+  await vault.addSecret({ projectId: project.id, name: 'TOKEN', value: randomUUID() })
+  await writeFile(join(root, 'terminal.ts'), `
+    import { ProjectStore } from ${JSON.stringify(join(__dirname, '../src/main/projects.ts'))}
+    import { Vault } from ${JSON.stringify(join(__dirname, '../src/main/vault.ts'))}
+    import { runProject } from ${JSON.stringify(join(__dirname, '../src/main/launch.ts'))}
+    import { join } from 'node:path'
+    const projects = new ProjectStore(join(process.argv[2], 'app-data', 'projects.json'))
+    const vault = new Vault(projects, join(process.argv[2], 'app-data', 'settings.json'), process.argv[2], process.argv[3])
+    await vault.start()
+    process.exit(await runProject(projects, vault, ['run', 'Demo', '--', 'node', '-e',
+      "process.on(process.argv[1], () => process.exit(37)); console.log('ready'); setInterval(() => {}, 1000)", process.argv[4]]))
+  `)
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    const terminal = spawn(process.execPath, [join(root, 'terminal.ts'), root, service, signal], { stdio: ['ignore', 'pipe', 'pipe'] })
+    t.after(() => { terminal.kill('SIGKILL') })
+    const exit = new Promise((resolve, reject) => { terminal.once('close', resolve); terminal.once('error', reject) })
+    await new Promise<void>((resolve, reject) => {
+      terminal.stdout.once('data', () => resolve())
+      terminal.once('error', reject)
+      terminal.once('close', () => reject(new Error('The command exited before readiness.')))
+    })
+    terminal.kill(signal)
+    assert.equal(await exit, 37)
+  }
 })
 
 test('a failed Keychain deletion keeps the secret available for another attempt', async (t) => {

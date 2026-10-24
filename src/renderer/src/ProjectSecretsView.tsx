@@ -67,10 +67,11 @@ export function ProjectSecretsView({ projectId, projects, secrets, updateSecrets
               onChange={(event) => setName(event.target.value)} />
             <p id="secret-name-help" className="field-help">Use letters, digits, and underscores. Do not start with a digit.</p>
             <label htmlFor="secret-value">Value</label>
-            <input id="secret-value" type="password" value={value} maxLength={65536} required
+            <input id="secret-value" type="password" value={value} maxLength={65536} aria-describedby="secret-value-help"
               autoComplete="off" spellCheck={false} onChange={(event) => setValue(event.target.value)} />
+            <p id="secret-value-help" className="field-help">Leave this field empty to store an empty value.</p>
             <div className="form-actions">
-              <button type="submit" disabled={!name || !value}>{operation.busy ? 'Please wait…' : 'Save secret'}</button>
+              <button type="submit" disabled={!name}>{operation.busy ? 'Please wait…' : 'Save secret'}</button>
             </div>
           </fieldset>
         </form>
@@ -142,10 +143,10 @@ function SecretRow({ secret, busy, run, updateSecrets }: SecretRowProps) {
           <fieldset disabled={busy}>
             <label htmlFor={`value-${secret.id}`}>New value for {secret.name}</label>
             <div className="inline-field">
-              <input ref={field} id={`value-${secret.id}`} type="password" value={value} maxLength={65536} required
+              <input ref={field} id={`value-${secret.id}`} type="password" value={value} maxLength={65536}
                 autoComplete="off" spellCheck={false} onChange={(event) => setValue(event.target.value)} />
               <button type="button" className="secondary" onClick={() => { setValue(''); setMode('view') }}>Cancel</button>
-              <button type="submit" disabled={!value}>Save value</button>
+              <button type="submit">Save value</button>
             </div>
           </fieldset>
         </form>

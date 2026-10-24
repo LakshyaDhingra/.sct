@@ -4,9 +4,11 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { ProjectStore } from './projects'
 import { Vault } from './vault'
+import { runProject } from './launch'
 import type { Reply } from '../shared/api'
 
 let mainWindow: BrowserWindow | null = null
+const launchArguments = process.argv.slice(process.defaultApp ? 2 : 1)
 
 function handle(channel: string, operation: (...args: unknown[]) => unknown): void {
   ipcMain.handle(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]): Promise<Reply<unknown>> => {
@@ -70,6 +72,11 @@ app.whenReady().then(async () => {
   const projects = new ProjectStore(join(app.getPath('userData'), 'projects.json'))
   const vault = new Vault(projects, join(app.getPath('userData'), 'settings.json'), homedir())
   await vault.start()
+  if (launchArguments[0] === 'run') {
+    app.dock?.hide()
+    app.exit(await runProject(projects, vault, launchArguments))
+    return
+  }
   handle('projects:list', () => projects.list())
   handle('projects:add', (input) => vault.addProject(input))
   handle('projects:rename', (input) => vault.renameProject(input))
@@ -96,7 +103,14 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow().catch(reportStartupError)
   })
-}).catch(reportStartupError)
+}).catch((error: unknown) => {
+  if (launchArguments[0] === 'run') {
+    console.error(error instanceof Error ? error.message : 'The project command could not start.')
+    app.exit(1)
+  } else {
+    reportStartupError(error)
+  }
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

@@ -11,7 +11,7 @@ The basic local app exists. Unchecked items describe planned behavior.
 3. Integrate remote agent requests and results in [#33](https://github.com/omavashia2005/.sct/issues/33) when both branches are ready.
 
 The project folder must contain no .env file or equivalent secret-bearing file.
-The planned local runner resolves the registered project and its external encrypted vault.
+The local runner resolves the registered project and its external encrypted vault.
 It injects variables into the child environment before the project command starts.
 See [runtime injection and loader compatibility](docs/runtime-injection.md).
 
@@ -29,8 +29,8 @@ See [all issue prerequisites](docs/architecture.md#implementation-order).
 
 Local foundation:
 
-- [ ] Check local vault operations (#6).
-- [ ] Inject project variables without .env or replacement project files ([1.7, #32](https://github.com/omavashia2005/.sct/issues/32)).
+- [x] Check local vault operations (#6).
+- [x] Inject project variables without .env or replacement project files ([1.7, #32](https://github.com/omavashia2005/.sct/issues/32)).
 
 Relay and sharing branch:
 
@@ -136,6 +136,21 @@ Names use letters, digits, and underscores, and cannot start with a digit. A pro
 .sct clears the value field after each request. The window never shows a stored value.
 Select **Update value** to replace a value. Select **Delete** to remove a secret.
 Select **All secrets** to see the secret names of all projects.
+Values can be empty. Null characters are not valid environment values.
+
+### Run a project
+
+Build the signed app with `bun run package:mac`. Run its executable from your terminal:
+
+```sh
+./dist/sct-darwin-arm64/sct.app/Contents/MacOS/sct run "My project" -- bun run dev
+```
+
+Use the exact project name from the app. Use `sct-darwin-x64` on an Intel Mac.
+The command runs in the registered source folder with that project's secrets available before startup.
+Project secrets override matching inherited variables. The parent environment stays unchanged.
+The launcher creates no `.env` or replacement secret files. The launched program and its descendants can read or copy their environment.
+See the [existing-project guide, operation details, and loader checks](docs/runtime-injection.md).
 
 ### Vault storage
 

@@ -173,6 +173,28 @@ export class Vault {
     })
   }
 
+  // The callback starts the child before this method removes its environment references.
+  withProjectEnvironment<T>(projectId: string, use: (project: Project, environment: NodeJS.ProcessEnv) => T | Promise<T>): Promise<T> {
+    return this.serialize(async () => {
+      const project = await this.projects.find(projectId)
+      const storage = relative(project.directory, this.location())
+      if (!isAbsolute(storage) && storage !== '..' && !storage.startsWith(`..${sep}`)) {
+        throw new Error('Move vault storage outside the project folder before launch.')
+      }
+      const environment: NodeJS.ProcessEnv = { ...process.env }
+      try {
+        const reads = await Promise.allSettled((await this.readSecrets(project, true)).map(
+          (secret) => this.addEnvironmentSecret(project, secret, environment)
+        ))
+        // Complete all reads before cleanup, including when one key is unavailable.
+        for (const read of reads) if (read.status === 'rejected') throw read.reason
+        return await use(project, environment)
+      } finally {
+        for (const name of Object.keys(environment)) delete environment[name]
+      }
+    })
+  }
+
   deleteSecret(input: unknown): Promise<void> {
     return this.serialize(async () => {
       const { projectId, id } = requireSecretReference(input)
@@ -193,6 +215,19 @@ export class Vault {
       throw new Error('Cannot decrypt this secret. Its encrypted value or Keychain key is invalid.', { cause: error })
     } finally {
       key.fill(0)
+    }
+  }
+
+  private async addEnvironmentSecret(project: Project, secret: StoredSecret, environment: NodeJS.ProcessEnv): Promise<void> {
+    if (!isSecretName(secret.name)) throw new Error('A stored secret name is invalid for the process environment.')
+    const value = await this.decryptSecret(project, secret)
+    try {
+      const plaintext = value.toString('utf8')
+      if (!isSecretValue(plaintext)) throw new Error('A stored secret value is invalid for the process environment.')
+      // defineProperty also supports valid names such as __proto__.
+      Object.defineProperty(environment, secret.name, { value: plaintext, enumerable: true, configurable: true })
+    } finally {
+      value.fill(0)
     }
   }
 
@@ -282,12 +317,12 @@ export class Vault {
     }
   }
 
-  private async readSecrets(project: Project): Promise<StoredSecret[]> {
+  private async readSecrets(project: Project, required = false): Promise<StoredSecret[]> {
     let contents: Buffer
     try {
       contents = await readFile(join(this.projectDirectory(project.name), secretsFileName))
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      if (!required && (error as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw new Error(`Cannot read the secrets of ${project.name}.`, { cause: error })
     }
 
@@ -382,7 +417,7 @@ function isSecretName(name: unknown): name is string {
 }
 
 function isSecretValue(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= 65536
+  return typeof value === 'string' && value.length <= 65536 && !value.includes('\0')
 }
 
 function requireSecretInput(input: unknown): { projectId: string; name: string; value: string } {
@@ -392,14 +427,14 @@ function requireSecretInput(input: unknown): { projectId: string; name: string; 
   if (!isSecretName(name)) {
     throw new Error('Enter a name of 1 to 100 letters, digits, or underscores. Do not start it with a digit.')
   }
-  if (!isSecretValue(value)) throw new Error('Enter a value of 1 to 65,536 characters.')
+  if (!isSecretValue(value)) throw new Error('Enter at most 65,536 characters without a null character. Empty values are allowed.')
   return { projectId, name, value }
 }
 
 function requireSecretUpdate(input: unknown): { projectId: string; id: string; value: string } {
   const { projectId, id } = requireSecretReference(input)
   const { value } = input as Record<string, unknown>
-  if (!isSecretValue(value)) throw new Error('Enter a value of 1 to 65,536 characters.')
+  if (!isSecretValue(value)) throw new Error('Enter at most 65,536 characters without a null character. Empty values are allowed.')
   return { projectId, id, value }
 }
 
