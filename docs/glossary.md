@@ -1,6 +1,11 @@
 # .sct technical glossary
 
-These terms describe the development plan. Implementation tests must establish the stated behavior.
+These terms describe the development plan. Implementation checks must establish the stated behavior.
+
+Local runtime injection in #32 precedes relay setup.
+Relay sharing and local Agent Access then proceed independently.
+Only integration issue #33 depends on both branches.
+See the [implementation order](architecture.md#implementation-order).
 
 ## .sct
 
@@ -72,7 +77,23 @@ The recipient user's decision before agent execution. A relay message or agent c
 
 ## Injection
 
-Passing a local credential to an approved process through its environment. The process can read the value.
+Passing project secrets into a child process environment before startup.
+The process and its descendants can read or copy the values.
+Issue #32 provides the local runner without .env or equivalent project files.
+Issue #8 reuses that runner for approved agents.
+See [runtime injection](runtime-injection.md).
+
+## Loader compatibility
+
+Using existing environment variables with an application's normal runtime or loader.
+This does not make the encrypted secrets.sct file readable by a .env parser.
+Applications that require file contents can need changes.
+
+## Agent Access
+
+Local project authorization, approval, agent execution, and MCP operations.
+This branch has no relay dependency.
+Issue #33 later integrates remote tasks and received grants.
 
 ## Secret boundary
 

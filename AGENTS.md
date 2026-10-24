@@ -28,6 +28,17 @@ const journalPath = path.join(dir, "journal.json")
 const journal = await Bun.file(journalPath).json()
 ```
 
+## Implementation order
+
+- Follow [the issue order and prerequisites](docs/architecture.md#implementation-order).
+- Complete #32 runtime injection before relay setup.
+- Require no .env file or equivalent secret-bearing file in the project folder.
+- Develop relay sharing and local Agent Access independently after their local prerequisites pass.
+- Keep local Agent Access free of direct and indirect relay dependencies.
+- Build the sharing UI with delivery so users can test from both app windows.
+- Use #33 for integration that requires both completed branches.
+- Keep issue dependencies acyclic. Title prefixes show order, and GitHub issue IDs stay unchanged.
+
 ## Complex Logic
 
 When a function has several validation branches or supporting details, make the main function show the successful path. Move supporting details into small helpers below the main function.

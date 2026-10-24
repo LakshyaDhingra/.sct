@@ -1,45 +1,72 @@
 # .sct: CalHacks 2026
 
-.sct is a macOS credential and task handoff app built with Electron, React, and TypeScript.
-Each device keeps its vault and private keys locally. Cloud-hosted SpacetimeDB relays encrypted messages between verified devices.
-Unchecked items describe planned behavior.
+.sct is a macOS secret management and sharing app built with Electron, React, and TypeScript.
+Each device keeps its vault and private keys locally.
+The basic local app exists. Unchecked items describe planned behavior.
 
-## MVP flow
+## Development order
 
-1. A local agent submits a secret or task through the .sct CLI.
-2. The Electron app encrypts the payload for a verified, paired recipient device.
-3. SpacetimeDB persists the encrypted message and routes it through authorized subscriptions over TLS.
-4. The recipient decrypts locally and notifies its user. Agent execution requires local approval.
-5. Encrypted delivery acknowledgments and execution results return through the relay to the sender.
+1. Complete local project runtime injection in [#32](https://github.com/omavashia2005/.sct/issues/32) before relay setup.
+2. Develop relay sharing and local Agent Access as independent branches.
+3. Integrate remote agent requests and results in [#33](https://github.com/omavashia2005/.sct/issues/33) when both branches are ready.
 
-## MVP feature checklist
+The project folder must contain no .env file or equivalent secret-bearing file.
+The planned local runner resolves the registered project and its external encrypted vault.
+It injects variables into the child environment before the project command starts.
+See [runtime injection and loader compatibility](docs/runtime-injection.md).
 
-- [ ] Desktop app: Electron, React, and TypeScript ([#24](https://github.com/omavashia2005/.sct/issues/24), [#13](https://github.com/omavashia2005/.sct/issues/13)).
-- [ ] Local vault: Keychain-backed secret storage and local private keys ([#6](https://github.com/omavashia2005/.sct/issues/6), [#26](https://github.com/omavashia2005/.sct/issues/26)).
-- [ ] Project scope: One demo project and the `dev` environment ([#7](https://github.com/omavashia2005/.sct/issues/7)).
-- [ ] Secret management: Create, list, and delete local secrets ([#25](https://github.com/omavashia2005/.sct/issues/25), [#26](https://github.com/omavashia2005/.sct/issues/26), [#6](https://github.com/omavashia2005/.sct/issues/6)).
-- [ ] CLI submission: Accept a secret or task from a local agent ([#5](https://github.com/omavashia2005/.sct/issues/5), [#7](https://github.com/omavashia2005/.sct/issues/7)).
-- [ ] Verified pairing: Confirm device keys before sharing ([#15](https://github.com/omavashia2005/.sct/issues/15)).
-- [ ] Encrypted relay: Persist and route handoffs through cloud-hosted SpacetimeDB ([#3](https://github.com/omavashia2005/.sct/issues/3), [#11](https://github.com/omavashia2005/.sct/issues/11), [#16](https://github.com/omavashia2005/.sct/issues/16), [#17](https://github.com/omavashia2005/.sct/issues/17)).
-- [ ] Recipient execution: Notify the user and launch an approved agent task ([#8](https://github.com/omavashia2005/.sct/issues/8), [#17](https://github.com/omavashia2005/.sct/issues/17), [#18](https://github.com/omavashia2005/.sct/issues/18)).
-- [ ] Delivery status: Return acknowledgments and execution results ([#11](https://github.com/omavashia2005/.sct/issues/11), [#14](https://github.com/omavashia2005/.sct/issues/14), [#17](https://github.com/omavashia2005/.sct/issues/17)).
-- [ ] Reliable delivery: Handle offline recipients, retries, expiry, and duplicate execution ([#16](https://github.com/omavashia2005/.sct/issues/16), [#17](https://github.com/omavashia2005/.sct/issues/17), [#19](https://github.com/omavashia2005/.sct/issues/19)).
-- [ ] Access control: Enforce injection-only grants and local approval ([#18](https://github.com/omavashia2005/.sct/issues/18)).
-- [ ] Local expiry: Block expired grants and remove their local secret material ([#19](https://github.com/omavashia2005/.sct/issues/19)).
-- [ ] Activity ledger: Show recipients, deadlines, delivery status, and execution outcomes ([#11](https://github.com/omavashia2005/.sct/issues/11), [#14](https://github.com/omavashia2005/.sct/issues/14)).
-- [ ] Claude integration: Expose the narrow MCP interface ([#4](https://github.com/omavashia2005/.sct/issues/4), [#9](https://github.com/omavashia2005/.sct/issues/9), [#10](https://github.com/omavashia2005/.sct/issues/10)).
-- [ ] Offline local access: Keep the vault usable during relay outages ([#12](https://github.com/omavashia2005/.sct/issues/12), [#20](https://github.com/omavashia2005/.sct/issues/20)).
+The relay branch defines SpacetimeDB setup, communication, pairing, and encrypted transfer.
+It builds the sharing UI with actual delivery, then checks secure sharing in #20.
+The local Agent Access branch adds local requests, approval, agent execution, MCP, and Claude integration.
+It has no dependency on relay setup, pairing, delivery, or #20.
+Only integration issue #33 requires both secure sharing and completed local Agent Access.
 
-Deferred from the MVP:
+Title prefixes show a valid dependency order.
+They do not require one independent branch to wait for another.
+See [all issue prerequisites](docs/architecture.md#implementation-order).
 
-- [ ] AirDrop sharing ([#22](https://github.com/omavashia2005/.sct/issues/22)).
-- [ ] Factory integration ([#23](https://github.com/omavashia2005/.sct/issues/23)).
-- [ ] Access renewal.
-- [ ] Manual rotation.
-- [ ] Fetch.ai integration.
-- [ ] Provider import and export.
+## Feature checklist
 
-Core stack: Electron + React + TypeScript + macOS Keychain + cloud-hosted SpacetimeDB + MCP.
+Local foundation:
+
+- [ ] Check local vault operations (#6).
+- [ ] Inject project variables without .env or replacement project files ([1.7, #32](https://github.com/omavashia2005/.sct/issues/32)).
+
+Relay and sharing branch:
+
+- [ ] Hosted relay setup and communication schema (#3, #11).
+- [ ] Electron relay connection, pairing, encrypted envelopes, and secure sharing IPC (#12, #15, #16, #13).
+- [ ] Sharing UI and actual delivery from both app windows (#14, #17).
+- [ ] Retry deadlines, grant cleanup, and secure sharing checks (#19, #20).
+
+Independent local Agent Access branch:
+
+- [ ] Local agent CLI, request contract, and MCP approval check (#5, #7, #4).
+- [ ] Local project access, approval, and runtime injection for approved agents (#18, #8).
+- [ ] Narrow MCP tools and local Claude integration (#9, #10).
+
+Integration:
+
+- [ ] Connect remote tasks, received grants, execution records, and encrypted results ([3.8, #33](https://github.com/omavashia2005/.sct/issues/33)).
+
+Post-MVP:
+
+- [ ] AirDrop sharing (#22).
+- [ ] Factory integration (#23).
+- [ ] Access renewal, manual rotation, Fetch.ai integration, and provider import and export.
+
+## Sharing and agent flows
+
+Sharing starts in the desktop app.
+Users verify device keys, select a secret and recipient, and submit an encrypted transfer.
+SpacetimeDB persists ciphertext and routes authorized subscriptions.
+The recipient checks and imports the secret locally, then returns an encrypted acknowledgment.
+Receipt confirms delivery.
+
+Local Agent Access uses the project's local vault, runtime injection, and explicit approval.
+It works without relay configuration.
+Claude Code's own model service may still require internet access.
+Issue #33 later connects remote delivery to this local execution path.
 
 ## Storage and security
 
