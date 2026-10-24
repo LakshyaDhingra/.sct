@@ -1,158 +1,174 @@
-# Run a project with .sct environment variables
+# CLI and TypeScript runtime injection
 
-.sct supplies a registered project's secrets to its development command without creating a `.env` file.
-This implements [#32](https://github.com/omavashia2005/.sct/issues/32).
-The launch path works locally without a relay, MCP server, or agent.
+.sct supplies registered project secrets without `.env` files or project-local secret manifests.
+The CLI and SDK work offline. They require no relay, MCP server, or agent.
+The signed Electron main process owns Keychain access and decryption in both paths.
 
-## Try an existing project
+## Set up once
 
-1. Build the signed app from the .sct repository:
-
-   ```sh
-   bun run package:mac
-   ```
-
-2. Open `dist/sct-darwin-arm64/sct.app` in Finder. Use `sct-darwin-x64` on an Intel Mac.
-3. Add your existing project folder in **Projects**, unless it is already registered.
-4. Select **Open secrets** for that project. Save the variable names and values that your application needs.
-5. Keep vault storage outside the project folder. Use **Storage** to move it if necessary.
-6. Stop any development command that is already running. The new environment applies only to new launches.
-7. Launch the project's command from a terminal. Use the exact registered project name:
-
-   ```sh
-   /absolute/path/to/.sct/dist/sct-darwin-arm64/sct.app/Contents/MacOS/sct run "My project" -- bun run dev
-   ```
-
-The terminal can be in any folder. .sct uses the project's registered source folder as the working directory.
-The app window can remain open or closed.
-The signed executable uses the same registry, storage settings, and Keychain identity as the signed desktop app.
-Follow [local signing setup](macos-signing.md) if the packaging command reports a missing identity.
-
-For a shorter command, define this function in your current terminal. Replace the absolute path first:
+From the .sct repository, build the signed app and install its CLI link:
 
 ```sh
-sct() {
-  "/absolute/path/to/.sct/dist/sct-darwin-arm64/sct.app/Contents/MacOS/sct" "$@"
-}
+bun run package:mac
+bun run install:cli
 ```
 
-Then use your normal executable and arguments:
+The installer links `~/.local/bin/sct` to the built executable.
+It preserves existing commands and rejects links to another application.
+If `~/.local/bin` is absent from `PATH`, the installer prints this line for your `~/.zshrc`:
 
 ```sh
-sct run "My project" -- bun run dev
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Open a new terminal after changing `PATH`.
+The link continues to use the same app location after rebuilds. Reinstall it if you move the app.
+Follow [local signing setup](macos-signing.md) if the build reports a missing identity.
+
+Open `dist/sct-darwin-arm64/sct.app` in Finder. Use `sct-darwin-x64` on an Intel Mac.
+Register your existing project folder and save its variables under **Open secrets**.
+Keep vault storage outside the source folder. No `.sct` configuration file belongs in the project.
+The desktop window can remain open or closed during injection.
+
+## CLI: one command in your project
+
+From the registered source folder or any subfolder:
+
+```sh
+sct run -- bun run dev
+```
+
+.sct selects the nearest registered parent folder and uses its registered source folder as the working directory.
+You can also select a project by its exact name:
+
+```sh
 sct run "My project" -- npm run dev
 sct run "My project" -- node server.js
-sct run "My project" -- .venv/bin/python app.py
 ```
 
-The command after `--` names an executable and its arguments. .sct does not interpret shell operators.
-Put command sequences in an existing package script when you need them.
-Do not put secret values in command arguments.
+The command receives the project's variables before imports or package scripts execute.
+Project secrets override matching inherited variables. Unrelated inherited variables remain available.
+The parent environment stays unchanged. Other projects' vault entries do not enter this environment.
+Values preserve spaces, quotes, dollar signs, equals signs, empty strings, Unicode, and newlines.
+The vault rejects null characters because process environment values cannot contain them.
 
-## Check presence without printing values
+Leave the command running. Saved key additions, updates, and deletions automatically restart the command with the current environment.
+You do not repeat the command or copy new values into a shell.
+The watcher checks encrypted file metadata every 500 milliseconds. It decrypts only when a revision changes.
+Renames and storage moves resolve through the current registry and settings while retaining the selected project ID.
+The launcher creates no plaintext compatibility file.
 
-Replace `API_KEY` with one of your saved variable names:
+A restart interrupts the project. Its normal startup code runs again.
+.sct sends `SIGTERM` to the command's process group and waits for shutdown.
+It allows up to two seconds before forcing shutdown and removes remaining group members before another launch.
+Use this behavior for development commands whose restart side effects you accept.
+Processes that detach into another session remain under the launched program's control.
+
+Terminal input and output remain connected to the command.
+`Ctrl+C`, `SIGTERM`, and `SIGHUP` reach its process group.
+A normal command exit ends the launcher with the same exit code.
+An exit identified only by a signal returns `128 + signal number`.
+.sct does not automatically repeat commands that exit normally or crash.
+
+If a later vault read fails, .sct stops the command and reports a value-free diagnostic.
+It keeps checking storage and launches again when the selected vault becomes readable.
+Missing prerequisites at the initial launch fail immediately.
+An untouched project needs at least one saved secret to create its encrypted vault file.
+
+## TypeScript SDK: load inside your code
+
+Build the dependency-free SDK in the .sct repository:
 
 ```sh
-sct run "My project" -- node -e 'console.log("API_KEY present:", Object.hasOwn(process.env, "API_KEY"))'
+bun run build:sdk
 ```
 
-The result should be `API_KEY present: true`. An intentionally empty value also counts as present.
-Then launch the normal development command through `sct run`.
+From your application's folder, install the local package:
 
-An existing `.env` file is not required. Move its needed values into .sct before you remove it.
-.sct does not import, remove, or rewrite existing `.env` files.
+```sh
+bun add /absolute/path/to/.sct/packages/env
+```
 
-## How injection works
+The SDK is not published to npm yet. The package contains JavaScript and TypeScript declarations, so consumers do not compile SDK sources.
+It requires Node.js 22.18 or later or Bun on macOS, and the installed `sct` command on `PATH`.
 
-1. The Electron main process resolves the project name through the existing registry.
-2. It reads the current vault setting and resolves `.sct/[project-name]/secrets.sct` outside the source folder.
-3. The vault decrypts that project's values with its existing macOS Keychain keys.
-4. It copies the inherited environment and applies the selected project's variables.
-5. `launchProject` launches the executable with that environment and the registered working directory.
-6. The launcher forwards terminal input, output, interruption, termination, and the command's exit status.
+Add a bootstrap entrypoint:
 
-The child receives variables before application imports or package scripts execute.
-Project secrets override inherited variables with the same name. Unrelated inherited variables remain available.
-The parent process environment stays unchanged. Other projects' vault entries do not enter this environment.
-Values retain spaces, quotes, dollar signs, equals signs, empty strings, Unicode, and newlines without expansion.
-Null characters cannot occur in process environment values. .sct rejects them when saving or launching.
+```ts
+import { loadEnv } from '@sct/env'
 
-The vault clears decrypted Buffers and its copies of value keys after use.
-It removes its environment references after process creation.
-Environment strings and copies inside the child remain available to that program and its descendants.
-The program can read, print, persist, or transmit them. Run commands that you trust.
-The launcher does not log values or return them to the renderer.
+await loadEnv()
+await import('./server.js')
+```
 
-The launch path creates no `.env`, replacement secret file, project manifest, copied key, symlink, or FIFO.
-It creates no plaintext compatibility file, including outside the project.
-The program can still create its normal files, logs, caches, and build output.
-Changing the vault does not update an already-running process. Restart the command to apply new values.
-Running a command directly, without `sct run`, bypasses injection.
+The SDK selects the project from the current folder. An optional `project` selects an exact registered name.
+The initial load completes before the promise resolves. Later snapshots update `process.env` without restarting the application.
+Removed keys restore their original inherited values, or disappear if none existed.
+Unrelated variables remain unchanged.
 
-`src/main/launch.ts` exports `launchProject` for later approved agent execution.
-The primitive accepts a registered project ID, executable, arguments, and standard I/O options.
-It uses `Vault.withProjectEnvironment` and has no relay or agent dependencies.
-It releases the vault queue after process creation, so a running server does not block vault edits.
+Call the SDK before importing code that reads credentials during initialization.
+Static imports evaluate before a module body, regardless of their written position.
+Libraries that cache a key in a client object need that client to be recreated after changes.
+Use `onChange` for that step. Use `onError` to handle later access failures.
+See the [SDK API and lifecycle guide](../packages/env/README.md) for examples.
 
-## Loader compatibility
+The SDK launches a signed helper through private stdin and stdout pipes.
+It receives only the selected project's values and checks each response before applying it.
+It opens no local server and uses no network service.
+Initial failures reject the load. Later failures restore inherited values and report an error while the helper waits for storage recovery.
+The returned function stops updates and restores inherited values. Helpers stop when the application exits.
+Neither the SDK nor its helper keeps an otherwise finished application alive.
 
-Compatibility comes from the inherited process environment.
-Libraries continue to read `process.env`, `os.environ`, or their runtime equivalent.
+## Check your existing project
+
+After saving a variable named `API_KEY`, check presence without printing its value:
+
+```sh
+sct run -- node -e 'console.log("API_KEY present:", Object.hasOwn(process.env, "API_KEY"))'
+```
+
+The expected result is `API_KEY present: true`. An empty value also counts as present.
+Then run the normal development command through the CLI, or use the SDK bootstrap with your usual command.
+Change a saved value in the app. The CLI restarts the project. The SDK updates its own process environment.
+
+.sct does not import, remove, or rewrite an existing `.env` file.
+Move the required values into .sct before removing that file from your project.
+Launching a program directly without the SDK or `sct run` does not inject values.
+
+## TypeScript and loader compatibility
+
+Existing libraries can consume inherited environment variables through `process.env`.
 They do not read or decrypt `secrets.sct`.
+Default dotenv loading preserves existing environment variables.
+Code that requires a successful `.env` file read needs adjustment when that file is absent.
+`dotenv.parse` parses supplied contents and does not return inherited variables.
+Loader override modes can replace injected values when they obtain other contents.
+See [dotenv configuration](https://github.com/motdotla/dotenv#config).
 
-These checks passed on macOS 26.5.1 arm64 on 2026-10-24 through the actual `launchProject` primitive:
-
-| Runtime or loader | Version checked | Result without `.env` |
-|---|---|---|
-| Node.js | 22.23.1 | Values exist before application code executes. Literal values and empty strings survive. |
-| dotenv | 18.0.9 on Node.js 22.23.1 | `dotenv.config()` leaves injected variables available and returns an `ENOENT` file error. |
-| Python | 3.11.7 | `os.environ` and `os.getenv` receive the injected values. |
-| python-dotenv | 1.2.4 on Python 3.11.7 | `load_dotenv()` returns `False` when no file exists and leaves injected values available. |
-| Bun | 1.4.4 | Direct scripts and `bun run` package scripts receive values without `.env` files. |
-| Vite | 8.3.5 on Node.js 22.23.1 | The server and `loadEnv` use inherited values. A client build exposes the public test variable and excludes the private test value. |
-
-The checks used separate Keychain items and removed them afterward.
-They checked arguments, output, project files, and Vite's normal cache for the private fixture value.
-The Vite build used `write: false` to inspect client output without writing it to disk.
-
-Default dotenv and python-dotenv loading preserves existing environment variables.
-Override settings can replace injected values when the loader obtains replacement contents.
-The checks also exercised overrides in memory, without a compatibility file.
-See [dotenv configuration](https://github.com/motdotla/dotenv#config) and [python-dotenv loading](https://bbc2.github.io/python-dotenv/).
-
-Code that throws whenever `dotenv.config()` returns an error needs adjustment for a missing `.env` file.
-Check the required environment variables rather than requiring successful file loading.
-Other loaders or flags that require an existing file can also reject a launch.
-.sct does not create a file to satisfy those requirements.
-
-`dotenv.parse` and `dotenv_values` parse supplied contents or files. They do not return the inherited environment.
-Use the runtime's environment API when the application needs injected values.
-Parsing empty or missing contents returned no injected values in these checks.
-
-Bun's automatic `.env` loading does not decrypt a vault. Injection occurs before Bun launches.
+Bun scripts and package scripts receive the environment before execution.
+Its automatic `.env` loading does not decrypt the vault.
 See [Bun environment variables](https://bun.sh/docs/runtime/environment-variables).
 
-Vite gives variables that exist at launch priority over `.env` values.
-Its default `VITE_` prefix exposes values in browser code, including build output.
-Use that prefix only for public configuration. Keep private credentials in server-side environment variables.
-Custom public prefixes and explicit build definitions can also expose values.
+Vite gives existing environment variables priority over `.env` values.
+Its default `VITE_` prefix exposes variables in browser code, including build output.
+Keep private credentials outside public prefixes and explicit client build definitions.
+The CLI restarts Vite after key changes, so its initialization sees the new environment.
+An SDK change in a server process does not rebuild Vite's existing browser output.
 See [Vite environment variables and modes](https://vite.dev/guide/env-and-mode).
 
-## Failures and process control
+The earlier #32 loader checks used Node.js 22.23.1, dotenv 18.0.9, Bun 1.4.4, and Vite 8.3.5.
+Those checks verified literal values, missing `.env` behavior, and private-value exclusion from client output.
+Python compatibility checks from #32 do not cover the TypeScript SDK. This SDK adds no Python integration.
 
-- A missing project or an incorrect project name stops the launch.
-- A missing or invalid vault file stops the launch. An untouched project needs one saved secret to create its vault file.
-- Missing keys, rejected Keychain access, or failed authentication stop the launch before the command executes.
-- Missing source folders or executables stop the launch. Executable names use the child's `PATH`.
-- A vault inside the source folder stops the launch. Move it through **Storage** and try again.
+## Storage and trust
 
-Use `Ctrl+C` to interrupt a running command.
-The launcher forwards `SIGINT`, `SIGTERM`, and `SIGHUP` to the command and waits for it to exit.
-It returns the command's numeric exit code. A signal-only exit returns `128 + signal number`.
-Commands retain responsibility for child processes that they detach or manage separately.
+Vault files stay encrypted in the configured external `.sct/[project-name]/secrets.sct` folder.
+The vault clears decrypted Buffers and copied value keys after use.
+It removes temporary environment references after their consumer completes.
+The launcher and SDK create no plaintext secret file, project manifest, copied key, symlink, or FIFO in the project.
+The installed CLI link belongs in `~/.local/bin`, outside the project.
 
-The Electron checks cover the terminal entrypoint offline, storage after a move and rename, and metadata-only renderer responses.
-The vault checks cover project isolation, literal values, missing prerequisites, parent-environment preservation, I/O, signals, and exit status.
-The signed executable also passed a launch check in Node mode with the vault source and isolated Keychain items.
-These checks ran on one Mac. They do not establish compatibility with every loader or application.
+Programs and their descendants can copy, print, persist, or send their environment. Run code that you trust.
+Updating or removing a key cannot revoke copies that a program already retained.
+The renderer API continues to return metadata only.
+Local runtime injection remains independent of relay sharing, Agent Access, and MCP.

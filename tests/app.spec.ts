@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { pathToFileURL } from 'node:url'
 
 test('adds existing folders offline and restores projects after restart', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'sct-ui-')))
@@ -208,6 +209,42 @@ test('manages secrets per project without rendering stored values', async () => 
       expect(await interruptedExit).toBe(37)
     } finally {
       interrupted.kill('SIGKILL')
+    }
+
+    await mkdir(join(root, 'sdk-bin'))
+    await writeFile(join(root, 'sdk-bin', 'sct'), '#!/bin/sh\nexec "$SCT_TEST_ELECTRON" "$SCT_TEST_ENTRY" "$SCT_TEST_DATA" "$@"\n', { mode: 0o700 })
+    await writeFile(join(root, 'sdk.mjs'), `
+      import { loadEnv } from ${JSON.stringify(pathToFileURL(join(__dirname, '../packages/env/dist/index.js')).href)}
+      import assert from 'node:assert/strict'
+      import { createHash } from 'node:crypto'
+      const alive = setInterval(() => {}, 1000)
+      const stop = await loadEnv({ onChange() {
+        assert.equal(createHash('sha256').update(process.env.OPENAI_API_KEY).digest('hex'), process.argv[3])
+        console.log('sdk-updated')
+        stop()
+        clearInterval(alive)
+      } })
+      assert.equal(createHash('sha256').update(process.env.OPENAI_API_KEY).digest('hex'), process.argv[2])
+      console.log('sdk-loaded')
+    `)
+    const sdk = spawn(process.execPath, [join(root, 'sdk.mjs'),
+      createHash('sha256').update(`${value}-updated`).digest('hex'), createHash('sha256').update(`${value}-sdk`).digest('hex')], {
+      cwd: folder,
+      env: { ...process.env, PATH: `${join(root, 'sdk-bin')}:${process.env.PATH}`,
+        SCT_TEST_ELECTRON: application.process().spawnfile, SCT_TEST_ENTRY: join(__dirname, 'electron-entry.cjs'), SCT_TEST_DATA: userData }
+    })
+    let sdkOutput = ''
+    sdk.stdout.on('data', (data: Buffer) => { sdkOutput += data.toString() })
+    sdk.stderr.on('data', (data: Buffer) => { sdkOutput += data.toString() })
+    const sdkExited = new Promise((resolve, reject) => { sdk.once('close', resolve); sdk.once('error', reject) })
+    try {
+      await expect.poll(() => sdkOutput).toContain('sdk-loaded')
+      await page.evaluate((secret) => window.sct.updateSecret(secret), { ...metadata[0], value: `${value}-sdk` })
+      await expect.poll(() => sdkOutput).toContain('sdk-updated')
+      expect(await sdkExited).toBe(0)
+      expect(sdkOutput).not.toContain(value)
+    } finally {
+      sdk.kill('SIGTERM')
     }
 
     await page.getByRole('link', { name: 'Open secrets' }).click()

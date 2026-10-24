@@ -175,13 +175,35 @@ export class Vault {
 
   // The callback starts the child before this method removes its environment references.
   withProjectEnvironment<T>(projectId: string, use: (project: Project, environment: NodeJS.ProcessEnv) => T | Promise<T>): Promise<T> {
+    return this.withProjectSecrets(projectId, async (project, values) => {
+      const environment = { ...process.env, ...values }
+      try {
+        return await use(project, environment)
+      } finally {
+        for (const name of Object.keys(environment)) delete environment[name]
+      }
+    })
+  }
+
+  projectRevision(projectId: string): Promise<string> {
     return this.serialize(async () => {
+      this.root = await this.readRoot()
+      const project = await this.projects.find(projectId)
+      const file = await stat(join(this.projectDirectory(project.name), secretsFileName))
+      return JSON.stringify([project.name, project.directory, this.root, file.ino, file.mtimeMs, file.ctimeMs, file.size])
+    })
+  }
+
+  // Trusted local consumers receive only this project's values, never the inherited environment.
+  withProjectSecrets<T>(projectId: string, use: (project: Project, values: Record<string, string>) => T | Promise<T>): Promise<T> {
+    return this.serialize(async () => {
+      this.root = await this.readRoot()
       const project = await this.projects.find(projectId)
       const storage = relative(project.directory, this.location())
       if (!isAbsolute(storage) && storage !== '..' && !storage.startsWith(`..${sep}`)) {
         throw new Error('Move vault storage outside the project folder before launch.')
       }
-      const environment: NodeJS.ProcessEnv = { ...process.env }
+      const environment: Record<string, string> = {}
       try {
         const reads = await Promise.allSettled((await this.readSecrets(project, true)).map(
           (secret) => this.addEnvironmentSecret(project, secret, environment)

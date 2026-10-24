@@ -3,11 +3,12 @@ import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { constants } from 'node:os'
 import type { ProjectStore } from './projects'
 import type { Vault } from './vault'
+import { resolveProject, watchProject } from './runtime'
 
-export function launchProject(vault: Vault, projectId: string, executable: string, args: string[], stdio: StdioOptions = 'inherit'): Promise<ChildProcess> {
+export function launchProject(vault: Vault, projectId: string, executable: string, args: string[], stdio: StdioOptions = 'inherit', detached = false): Promise<ChildProcess> {
   return vault.withProjectEnvironment(projectId, (project, environment) => new Promise<ChildProcess>((resolve, reject) => {
     try {
-      const child = spawn(executable, args, { cwd: project.directory, env: environment, stdio, shell: false })
+      const child = spawn(executable, args, { cwd: project.directory, env: environment, stdio, shell: false, detached })
       child.once('error', () => reject(new Error('Cannot start the command. Check the executable and project folder.')))
       child.once('spawn', () => resolve(child))
     } catch {
@@ -18,18 +19,44 @@ export function launchProject(vault: Vault, projectId: string, executable: strin
 
 export async function runProject(projects: ProjectStore, vault: Vault, args: string[]): Promise<number> {
   const { projectName, executable, commandArgs } = requireRunArguments(args)
-  const project = (await projects.list()).find((saved) => saved.name === projectName)
-  if (!project) throw new Error('This project is not in your project list. Use its exact registered name.')
-  const child = await launchProject(vault, project.id, executable, commandArgs)
-  const forward = (signal: NodeJS.Signals) => { child.kill(signal) }
+  const project = await resolveProject(projects, projectName)
+  let child: ChildProcess | undefined
+  let restarting = false
+  let closing = false
+  let finish: (code: number) => void = () => undefined
+  const exited = new Promise<number>((resolve) => { finish = resolve })
+  const forward = (signal: NodeJS.Signals) => {
+    closing = true
+    if (child) signalCommand(child, signal)
+    else finish(128 + constants.signals[signal])
+  }
   process.on('SIGINT', forward)
   process.on('SIGTERM', forward)
   process.on('SIGHUP', forward)
+  let stop: (() => Promise<void>) | undefined
   try {
-    return await new Promise<number>((resolve) => {
-      child.once('close', (code, signal) => resolve(code ?? (signal ? 128 + constants.signals[signal] : 1)))
+    stop = await watchProject(vault, project.id, async () => {
+      restarting = true
+      if (child) await stopCommand(child)
+      if (closing) return
+      child = await launchProject(vault, project.id, executable, commandArgs, 'inherit', true)
+      restarting = false
+      const launched = child
+      child.once('close', (code, signal) => {
+        signalCommand(launched, 'SIGKILL')
+        child = undefined
+        if (!restarting || closing) finish(code ?? (signal ? 128 + constants.signals[signal] : 1))
+      })
+    }, async () => {
+      restarting = true
+      if (child) await stopCommand(child)
+      console.error('Cannot refresh .sct secrets. The command is stopped until storage and Keychain are available.')
     })
+    return await exited
   } finally {
+    closing = true
+    await stop?.()
+    if (child) await stopCommand(child)
     process.off('SIGINT', forward)
     process.off('SIGTERM', forward)
     process.off('SIGHUP', forward)
@@ -37,8 +64,34 @@ export async function runProject(projects: ProjectStore, vault: Vault, args: str
 }
 
 function requireRunArguments(args: string[]) {
-  if (args[0] !== 'run' || !args[1] || args[2] !== '--' || !args[3]) {
-    throw new Error('Usage: sct run "Project name" -- <executable> [arguments]')
+  const separator = args[1] === '--' ? 1 : 2
+  if (args[0] !== 'run' || args[separator] !== '--' || !args[separator + 1]) {
+    throw new Error('Usage: sct run ["Project name"] -- <executable> [arguments]')
   }
-  return { projectName: args[1], executable: args[3], commandArgs: args.slice(4) }
+  return { projectName: separator === 1 ? undefined : args[1], executable: args[separator + 1], commandArgs: args.slice(separator + 2) }
+}
+
+function signalCommand(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid) return
+  try {
+    process.kill(-child.pid, signal)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+  }
+}
+
+async function stopCommand(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    signalCommand(child, 'SIGKILL')
+    return
+  }
+  const exited = new Promise<void>((resolve) => child.once('close', () => resolve()))
+  signalCommand(child, 'SIGTERM')
+  const force = setTimeout(() => signalCommand(child, 'SIGKILL'), 2000)
+  try {
+    await exited
+  } finally {
+    clearTimeout(force)
+    signalCommand(child, 'SIGKILL')
+  }
 }

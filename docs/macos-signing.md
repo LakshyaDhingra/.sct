@@ -60,6 +60,9 @@ open dist/sct-darwin-arm64/sct.app
 ```
 
 Use the `sct-darwin-x64` directory on an Intel Mac.
+Run `bun run install:cli` to link the signed executable as `~/.local/bin/sct`.
+The TypeScript SDK uses this command through private process pipes, so SDK consumers do not access Keychain directly.
+See [CLI and SDK setup](runtime-injection.md).
 `bun run dev` and `bun start` use the development Electron runner. They do not create the signed application bundle.
 
 ## Check a rebuild

@@ -65,7 +65,15 @@ The Electron process that displays the React UI. It clears entered secret values
 
 ## CLI
 
-Command-line interface. Local agents submit tasks, secrets through stdin, or local vault references.
+Command-line interface. `sct run -- <command>` selects a registered project from the current folder and injects its secrets.
+Saved key changes automatically restart that command.
+Later Agent Access commands remain separate from this user-invoked runtime path.
+
+## TypeScript SDK
+
+The dependency-free `@sct/env` package provides `await loadEnv()` for trusted server-side code.
+It receives project secrets through a signed helper's private process pipes and keeps `process.env` current.
+Its `onChange` callback lets applications recreate clients that retain credentials during initialization.
 
 ## MCP
 
