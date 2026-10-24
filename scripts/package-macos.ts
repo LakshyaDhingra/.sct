@@ -60,7 +60,7 @@ const [output] = await packager({
   electronVersion: electron.version,
   platform: 'darwin',
   arch: process.arch,
-  extraResource: ['out/demo', 'skills'],
+  extraResource: ['out/demo', 'out/airdrop', 'skills'],
   // macOS cannot load a native library from inside the archive.
   asar: { unpack: '*.node' },
   overwrite: true,

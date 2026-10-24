@@ -37,7 +37,7 @@ export const agentTools = {
     schema: z.strictObject({ action: z.enum(['export', 'verify']), path: z.string().min(1).optional(), expiresAt })
   },
   send_secrets_to: {
-    description: 'Encrypt selected secrets for a verified AirDrop recipient after local approval. Open the native share menu. This does not confirm delivery.',
+    description: 'Encrypt selected secrets for a verified AirDrop recipient after local approval. Open the AirDrop picker. This does not confirm delivery.',
     schema: z.strictObject({ projectId, secretIds: z.array(z.uuid()).min(1).max(1000), recipientId: z.string().min(1), expiresAt })
   },
   relay_status: {

@@ -128,7 +128,7 @@ export class AgentAccess {
     if (submission.operation === 'pair_device') {
       if (submission.input.action === 'export') {
         if (submission.input.path) throw new Error('Export accepts no input path.')
-        return { view: { secrets: [], detail: 'Export this Mac’s public device card through the native share menu.' } }
+        return { view: { secrets: [], detail: 'Send this Mac’s public device card to a nearby Mac.' } }
       }
       if (!submission.input.path) throw new Error('A device card path is required.')
       const preview = await (await this.services.sharing()).previewPeer(submission.input.path)
@@ -153,7 +153,7 @@ export class AgentAccess {
     if (submission.operation === 'send_secrets_to') {
       const recipient = (await (await this.services.sharing()).state()).peers.find((peer) => peer.id === submission.input.recipientId)
       if (!recipient) throw new Error('Verify the recipient first.')
-      detail = `Encrypt the selected secrets for ${recipient.name} (${recipient.fingerprint}). Choose that recipient in the native share menu. Delivery remains unconfirmed.`
+      detail = `Encrypt the selected secrets for ${recipient.name} (${recipient.fingerprint}). Choose that Mac in the picker. Delivery remains unconfirmed.`
     } else if (submission.operation === 'run_demo') {
       detail = `Run the fixed environment demo with ${stdinValue !== undefined ? 'a value from stdin' : 'the selected saved secret'}. The child can read its input. Return no process logs.`
     } else detail = submission.operation === 'delete_secret' ? 'Permanently delete this saved secret.' : 'Read this secret’s metadata. Return no value.'
