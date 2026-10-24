@@ -86,6 +86,7 @@ export const PeerItem = __t.object("PeerItem", {
   get status() {
     return PairStatus;
   },
+  initiator: __t.identity(),
   identity: __t.identity(),
   name: __t.string(),
   encryptionPublicKey: __t.byteArray(),

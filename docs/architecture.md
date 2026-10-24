@@ -159,6 +159,7 @@ All tables are private. Clients read data only through the views.
 | `registerDevice(name, encryptionPublicKey, signingPublicKey)` | Creates the `device` row of the caller, or changes its name. It rejects changed keys, because paired devices trust the registered keys. A key change needs a new identity and a new pairing. |
 | `requestPair(peer)` | Creates a `Pending` pair from the caller to the peer. It rejects the request if either device has no `device` row, the peer is the caller, or the two devices already have a pair. |
 | `confirmPair(pairId)` | Sets the pair to `Verified`. Only the peer of the pair can call it. |
+| `removePair(pairId)` | Deletes the pair. Either device of the pair can call it, for example after the pairing codes differ. The devices can then pair again. |
 | `publishSecret(id, payload, recipients)` | Each recipient entry contains a `recipient` identity and a `wrappedKey`. The reducer rejects the request if the caller has no `device` row, the list is empty, a recipient occurs more than one time, a recipient has no `Verified` pair with the caller, or the ID is already used. It saves the `message` row and one `Pending` `delivery` row for each recipient in one transaction. |
 | `acknowledge(messageId)` | Sets `Received` and `receivedAt` on the `delivery` row of the caller for that message. It rejects the request if the caller has no `delivery` row for the message. A second call changes nothing. |
 
@@ -166,7 +167,7 @@ All tables are private. Clients read data only through the views.
 |---|---|
 | `my_inbox` | The `Pending` deliveries of the caller, each with the `payload` of its message and the `wrappedKey` of the caller |
 | `my_sent` | For each message from the caller, one row for each recipient with `status` and `receivedAt` |
-| `my_peers` | For each pair of the caller, the pair ID, the pair status, and the `device` row of the other device |
+| `my_peers` | For each pair of the caller, the pair ID, the pair status, the initiator, and the `device` row of the other device |
 
 The relay takes `sender` from the authenticated caller. It sets `createdAt` and `receivedAt` from server time.
 A delivery row leaves `my_inbox` after `acknowledge`. The recipient app keeps its own local record.
@@ -174,7 +175,7 @@ The recipient app protects the secret locally before it calls `acknowledge`.
 A third identity sees no rows of another pair.
 
 Issue #11 defines the `pair` table and the pair reducers.
-Issue #15 adds the pairing code check in the app. Both users compare the code before the peer calls `confirmPair`.
+Both users compare the pairing code in the app before they confirm. See [relay pairing](relay.md#pairing).
 This first version does not contain signatures, deadlines, or retries. Issues #16, #19, and #17 add them.
 A reused message ID always fails. Issue #17 adds retries that reuse the original ID.
 Until #19 adds deadlines, messages and delivery rows stay on the relay.

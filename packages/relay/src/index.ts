@@ -95,12 +95,19 @@ export const requestPair = spacetimedb.reducer({ peer: t.identity() }, (ctx, { p
   ctx.db.pair.insert({ id: 0n, initiator: ctx.sender, peer, status: { tag: 'Pending' } })
 })
 
-// Issue #15 adds the pairing code check in the app before the peer confirms.
+// Both users compare the pairing code in the app before the peer confirms.
 export const confirmPair = spacetimedb.reducer({ pairId: t.u64() }, (ctx, { pairId }) => {
   const row = ctx.db.pair.id.find(pairId)
   if (!row || !row.peer.equals(ctx.sender)) throw new SenderError('No pair request exists for this device.')
   if (row.status.tag === 'Verified') return
   ctx.db.pair.id.update({ ...row, status: { tag: 'Verified' } })
+})
+
+// Either device can remove its pair, for example after the pairing codes differ. The devices can then pair again.
+export const removePair = spacetimedb.reducer({ pairId: t.u64() }, (ctx, { pairId }) => {
+  const row = ctx.db.pair.id.find(pairId)
+  if (!row || (!row.initiator.equals(ctx.sender) && !row.peer.equals(ctx.sender))) throw new SenderError('No pair exists for this device.')
+  ctx.db.pair.id.delete(pairId)
 })
 
 export const publishSecret = spacetimedb.reducer(
@@ -168,6 +175,7 @@ export const myPeers = spacetimedb.view(
   t.array(t.object('PeerItem', {
     pairId: t.u64(),
     status: PairStatus,
+    initiator: t.identity(),
     identity: t.identity(),
     name: t.string(),
     encryptionPublicKey: t.byteArray(),
@@ -182,6 +190,7 @@ export const myPeers = spacetimedb.view(
       ? [{
           pairId: row.id,
           status: row.status,
+          initiator: row.initiator,
           identity: peer.identity,
           name: peer.name,
           encryptionPublicKey: peer.encryptionPublicKey,

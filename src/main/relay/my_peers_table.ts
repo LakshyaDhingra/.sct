@@ -19,6 +19,7 @@ export default __t.row({
   get status() {
     return PairStatus;
   },
+  initiator: __t.identity(),
   identity: __t.identity(),
   name: __t.string(),
   encryptionPublicKey: __t.byteArray().name("encryption_public_key"),

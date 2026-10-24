@@ -37,9 +37,10 @@ test('adds existing folders offline and restores projects after restart', async 
     expect(await page.evaluate(() => ({ process: 'process' in window, require: 'require' in window })))
       .toEqual({ process: false, require: false })
     expect(await page.evaluate(() => Object.keys(window.sct).sort()))
-      .toEqual(['addProject', 'addSecret', 'chooseVaultLocation', 'confirmSharingPeer', 'deleteProject', 'deleteSecret',
-        'dismissTransfer', 'getRelayState', 'getSharingState', 'getVaultLocation', 'importTransfer', 'listProjects', 'listSecrets',
-        'onRelayChanged', 'onSharingChanged', 'pickDirectory', 'pickSharingPeer', 'pickTransfer', 'renameProject', 'shareDeviceCard',
+      .toEqual(['addProject', 'addSecret', 'chooseVaultLocation', 'confirmRelayPair', 'confirmSharingPeer',
+        'deleteProject', 'deleteSecret', 'dismissTransfer', 'getRelayState', 'getSharingState', 'getVaultLocation',
+        'importTransfer', 'listProjects', 'listSecrets', 'onRelayChanged', 'onSharingChanged', 'pickDirectory',
+        'pickSharingPeer', 'pickTransfer', 'removeRelayPair', 'renameProject', 'requestRelayPair', 'shareDeviceCard',
         'shareSecrets', 'updateSecret'])
 
     await page.getByRole('button', { name: 'Add a project', exact: true }).click()
