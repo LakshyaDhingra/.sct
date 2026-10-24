@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, ShareMenu } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
+import { execFile } from 'node:child_process'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { rmSync } from 'node:fs'
@@ -192,7 +193,7 @@ async function runAgentSession(): Promise<number> {
         },
         changed: () => mainWindow?.webContents.send('agent:changed'),
         sharing: getSharing,
-        shareFile: shareAgentFile,
+        shareFile: sendToNearbyMac,
         relayState: async () => {
           relay ??= (async () => {
             const { Relay, relayServer } = await import('./relay-connection')
@@ -238,9 +239,9 @@ app.on('window-all-closed', () => {
 
 function registerSharing(service: Sharing): void {
   handle('sharing:state', () => service.state())
-  handle('sharing:device-card', async () => showShareMenu(await service.deviceCardFile()))
+  handle('sharing:device-card', async () => sendToNearbyMac(await service.deviceCardFile()))
   handle('sharing:pick-peer', async () => {
-    const path = await pickDirectory({ title: 'Verify a recipient device', properties: ['openFile'],
+    const path = await pickDirectory({ title: 'Verify a recipient device', properties: ['openFile'], defaultPath: app.getPath('downloads'),
       filters: [{ name: '.sct device card', extensions: ['sct-device'] }] })
     return path ? service.previewPeer(path) : null
   })
@@ -249,9 +250,9 @@ function registerSharing(service: Sharing): void {
     sharingChanged()
     return peer
   })
-  handle('sharing:send', async (input) => showShareMenu(await service.exportSecrets(input)))
+  handle('sharing:send', async (input) => sendToNearbyMac(await service.exportSecrets(input)))
   handle('sharing:pick-transfer', async () => {
-    const path = await pickDirectory({ title: 'Open an encrypted .sct transfer', properties: ['openFile'],
+    const path = await pickDirectory({ title: 'Choose a received .sct transfer', properties: ['openFile'], defaultPath: app.getPath('downloads'),
       filters: [{ name: '.sct transfer', extensions: ['sct-transfer'] }] })
     if (!path) return null
     const preview = await service.openTransfer(path)
@@ -272,20 +273,14 @@ function registerSharing(service: Sharing): void {
   })
 }
 
-function showShareMenu(path: string): void {
-  if (!mainWindow) throw new Error('The .sct window is unavailable.')
-  if (process.platform !== 'darwin') throw new Error('AirDrop sharing requires macOS.')
-  // A closed share menu does not confirm transport completion or recipient import.
-  new ShareMenu({ filePaths: [path] }).popup({ window: mainWindow })
-}
-
-function shareAgentFile(path: string): Promise<void> {
-  const window = mainWindow
-  if (!window) throw new Error('The .sct approval window is unavailable.')
-  if (process.platform !== 'darwin') throw new Error('AirDrop sharing requires macOS.')
-  return new Promise((resolve) => {
-    // A CLI session must keep the native menu alive until the user finishes choosing a transport.
-    new ShareMenu({ filePaths: [path] }).popup({ window, callback: resolve })
+function sendToNearbyMac(path: string): Promise<void> {
+  if (process.platform !== 'darwin') return Promise.reject(new Error('Sending to a nearby Mac requires macOS.'))
+  return new Promise((resolve, reject) => {
+    // The helper opens only the AirDrop picker and exits when it closes. macOS reports no delivery or cancel state.
+    execFile(app.isPackaged ? join(process.resourcesPath, 'airdrop') : join(__dirname, '../airdrop'), [path], (error, _stdout, stderr) => {
+      if (error) reject(new Error(stderr.trim() || 'Cannot open the nearby Mac picker.'))
+      else resolve()
+    })
   })
 }
 

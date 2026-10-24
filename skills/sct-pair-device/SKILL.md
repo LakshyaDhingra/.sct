@@ -11,7 +11,7 @@ Export this Mac's public card with the `pair_device` MCP tool:
 {"action":"export"}
 ```
 
-The user must approve the request. The native share menu lets the user send the card to the other Mac.
+The user must approve the request. The AirDrop picker lets the user send the card to the other Mac.
 The result's `path` identifies a public `.sct-device` file. It contains no secret credential.
 
 Request verification of the other Mac's card:

@@ -24,7 +24,7 @@ printf '%s' '{"secretIds":["00000000-0000-4000-8000-000000000002"],"recipientId"
 Replace the example IDs with actual metadata IDs.
 The CLI example selects the project from the working directory.
 The user must approve the selection in the local .sct window.
-The app encrypts the transfer for that verified recipient and opens the native share menu.
+The app encrypts the transfer for that verified recipient and opens the AirDrop picker.
 The user must choose the same recipient in macOS.
 Report `awaiting-transport` when the operation returns that status.
 Do not report delivery, receipt, or import from the operation's completion alone.

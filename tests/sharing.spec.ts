@@ -27,9 +27,11 @@ test('shares selected secrets into the recipient project without exposing values
     const destination = await recipient.app.firstWindow()
     const errors: string[] = []
     for (const { app } of applications) {
-      await app.evaluate(({ ShareMenu }) => {
-        // The native picker cannot run in automation. Encryption and vault operations remain real.
-        Object.assign(ShareMenu.prototype, { popup(options?: { callback?: () => void }) { options?.callback?.() } })
+      await app.evaluate(() => {
+        // The native AirDrop picker cannot run in automation. Encryption and vault operations remain real.
+        Object.assign(process.getBuiltinModule('node:child_process'), {
+          execFile(_file: string, _args: string[], callback: (error: null, stdout: string, stderr: string) => void) { callback(null, '', '') }
+        })
       })
     }
     for (const page of [source, destination]) {
@@ -49,11 +51,11 @@ test('shares selected secrets into the recipient project without exposing values
     for (const page of [source, destination]) {
       const tabs = page.getByRole('navigation', { name: 'Sharing', exact: true })
       await expect(tabs.getByRole('link', { name: 'Verify devices', exact: true })).toHaveAttribute('aria-current', 'page')
-      await expect(tabs.getByText('Share secrets', { exact: true })).toHaveAttribute('aria-disabled', 'true')
+      await expect(tabs.getByText('Send secrets', { exact: true })).toHaveAttribute('aria-disabled', 'true')
       await expect(page.getByRole('heading', { name: 'Send secrets', exact: true })).toHaveCount(0)
-      await expect(page.getByText('Verify a device before you can share secrets.', { exact: true })).toBeVisible()
+      await expect(page.getByText('Verify a device before you can send secrets.', { exact: true })).toBeVisible()
       await tabs.getByRole('link', { name: 'Verify devices', exact: true }).click()
-      await page.getByRole('button', { name: 'Send my device card…' }).click()
+      await page.getByRole('button', { name: 'Send my card to…' }).click()
       await expect(page.getByRole('status')).toContainText('public device card')
     }
     await source.screenshot({ path: test.info().outputPath('verify-devices.png'), fullPage: true })
@@ -70,10 +72,10 @@ test('shares selected secrets into the recipient project without exposing values
       await page.getByRole('button', { name: 'Confirm recipient' }).click()
       await expect(page.getByRole('list', { name: 'Verified devices' })).toBeVisible()
       await expect(page.getByRole('navigation', { name: 'Sharing', exact: true })
-        .getByRole('link', { name: 'Share secrets', exact: true })).toBeVisible()
+        .getByRole('link', { name: 'Send secrets', exact: true })).toBeVisible()
     }
 
-    await source.getByRole('link', { name: 'Continue to Share secrets', exact: true }).click()
+    await source.getByRole('link', { name: 'Continue to Send secrets', exact: true }).click()
     await expect(source.getByLabel('Source project').locator('option:checked')).toHaveText('backend')
     await expect(source.getByLabel('Verified recipient')).toBeFocused()
     await source.getByLabel('Verified recipient').selectOption({ index: 1 })
@@ -85,12 +87,12 @@ test('shares selected secrets into the recipient project without exposing values
     await expect(source.getByLabel('SECOND_TOKEN', { exact: true })).not.toBeChecked()
     await source.getByRole('navigation', { name: 'Sharing', exact: true }).getByRole('link', { name: 'Verify devices', exact: true }).click()
     await expect(source.getByRole('heading', { name: 'Send secrets', exact: true })).not.toBeVisible()
-    await source.getByRole('navigation', { name: 'Sharing', exact: true }).getByRole('link', { name: 'Share secrets', exact: true }).click()
+    await source.getByRole('navigation', { name: 'Sharing', exact: true }).getByRole('link', { name: 'Send secrets', exact: true }).click()
     await expect(source.getByLabel('Source project').locator('option:checked')).toHaveText('backend')
     await expect(source.getByLabel('API_TOKEN', { exact: true })).toBeChecked()
     await expect(source.getByLabel('SECOND_TOKEN', { exact: true })).not.toBeChecked()
-    await source.getByRole('button', { name: 'Send via AirDrop…' }).click()
-    await expect(source.getByRole('status')).toContainText('select the same recipient in macOS')
+    await source.getByRole('button', { name: 'Send to…' }).click()
+    await expect(source.getByRole('status')).toContainText('the encrypted secrets are on their way')
     const packages = (await readdir(join(sender.data, 'sharing', 'outbox'))).filter((name) => name.endsWith('.sct-transfer'))
     expect(packages).toHaveLength(1)
     const transferFile = packages[0]
@@ -113,6 +115,8 @@ test('shares selected secrets into the recipient project without exposing values
     await destination.screenshot({ path: test.info().outputPath('receive-secrets.png') })
     await destination.getByRole('button', { name: 'Import secrets' }).click()
     await expect(destination.getByRole('status')).toContainText('Imported 1 secret into api')
+    await expect(destination.getByRole('heading', { name: /^Received from / })).toBeVisible()
+    await expect(destination.locator('.sharing-scramble')).toHaveText('API_TOKEN')
 
     const projects = await destination.evaluate(() => window.sct.listProjects())
     const imported = await destination.evaluate(() => window.sct.listSecrets())
@@ -124,7 +128,7 @@ test('shares selected secrets into the recipient project without exposing values
     expect(await destination.content()).not.toContain(value)
 
     await writeFile(join(root, 'recipient', 'received.sct-transfer'), transfer)
-    await destination.getByRole('button', { name: 'Open transfer…' }).click()
+    await destination.getByRole('button', { name: 'Choose received file…' }).click()
     await expect(destination.getByRole('alert')).toContainText(/already|imported/i)
     expect(await destination.evaluate(() => window.sct.listSecrets())).toHaveLength(1)
     await source.screenshot({ path: test.info().outputPath('send-secrets.png') })

@@ -158,7 +158,7 @@ The user compares the code on both Macs before local approval of pairing.
 Exchange cards and complete local pairing on both Macs for sharing in both directions.
 `sharing_state` returns the verified recipient IDs for `send_secrets_to`.
 
-Sending encrypts the selected secrets for one verified recipient and opens the native macOS share menu.
+Sending encrypts the selected secrets for one verified recipient and opens the AirDrop picker.
 The user must choose that same recipient in macOS.
 `awaiting-transport` does not prove delivery, receipt, or import.
 The recipient accepts the file and imports it through the desktop app.

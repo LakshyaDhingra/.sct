@@ -150,9 +150,18 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .sharing-names { list-style: none; padding: 0; margin: 20px 0 0; border-top: 1px solid var(--color-rule); }
 .sharing-names li { padding-block: 8px; border-bottom: 1px solid var(--color-rule); overflow-wrap: anywhere; font-size: 15px; }
 .sharing-destination { margin-top: 12px; }
-.sharing-activity { height: 3px; margin-bottom: 20px; background: var(--color-rule); }
-.sharing-activity span { display: block; width: 100%; height: 100%; background: var(--color-accent); transform-origin: left; }
-.sharing-activity[data-active="false"] { visibility: hidden; }
+.sharing-motion { margin-top: 24px; border-top: 1px solid var(--color-rule); }
+.sharing-motion .sharing-names { margin-top: 0; border-top: 0; }
+.sharing-scramble { color: var(--color-accent); }
+.sharing-transit { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; margin-top: 20px; color: var(--color-ink-2); font-size: 12px; }
+.sharing-transit > span:not(.sharing-transit-track) { overflow-wrap: anywhere; }
+.sharing-transit-track { height: 8px; background: repeating-linear-gradient(90deg, var(--color-rule-2) 0 4px, transparent 4px 8px) center / 100% 1px no-repeat; }
+/* The lane is one packet narrower than the track, so a 100% move ends the packet at the far edge. */
+.sharing-transit-lane { display: block; width: calc(100% - 8px); height: 100%; animation: sharing-transit 1.4s steps(12, jump-none) infinite; }
+.sharing-transit-lane > span { display: block; width: 8px; height: 8px; background: var(--color-accent); }
+.sharing-transit[data-arrived="true"] .sharing-transit-lane { animation-iteration-count: 1; animation-fill-mode: forwards; }
+@keyframes sharing-transit { from { transform: translateX(0); } to { transform: translateX(100%); } }
+.sharing-waiting { margin: 0 0 20px; font-size: 15px; }
 @media (max-width: 700px) {
   .header-start { flex-wrap: wrap; min-width: 0; }
   .header-start nav { flex-wrap: wrap; }
@@ -161,7 +170,8 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
   .page-heading .row-actions, .form-actions { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sharing-activity span { transform: none; opacity: 1; }
+  .sharing-transit-lane { animation: none; }
+  .sharing-transit[data-arrived="true"] .sharing-transit-lane { transform: translateX(100%); }
 }
 
 .sharing-setup { margin: 24px 0 0; padding-left: 24px; }
@@ -177,7 +187,7 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .sharing-details .sharing-peers { margin-top: 0; }
 .sharing-tabs { display: flex; border-bottom: 1px solid var(--color-rule-2); }
 .sharing-tabs a, .sharing-tabs > span { display: block; min-height: 44px; border: 1px solid var(--color-rule-2); border-bottom: 0; padding: 8px 20px; font-size: 15px; text-decoration: none; }
-.sharing-tabs a + a, .sharing-tabs a + span { border-left: 0; }
+.sharing-tabs > * + * { border-left: 0; }
 .sharing-tabs a { color: var(--color-ink-2); background: var(--color-paper-2); }
 .sharing-tabs a:hover { color: var(--color-ink); background: var(--color-paper-3); }
 .sharing-tabs a[aria-current="page"] { color: var(--color-accent); border-top-color: var(--color-accent); background: var(--color-paper); }

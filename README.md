@@ -102,7 +102,8 @@ See [architecture and implementation order](docs/architecture.md) and the [techn
 
 ## Run the desktop app
 
-Use macOS, Bun 1.4.4 or later, and Node.js 22.18 or later.
+Use macOS, Bun 1.4.4 or later, Node.js 22.18 or later, and the Xcode command line tools.
+The `dev` and `build` scripts compile the AirDrop helper with `swiftc`.
 Install the dependencies once:
 
 ```sh
@@ -176,8 +177,9 @@ The SDK has no runtime dependencies. The signed main process retains Keychain ac
 
 Open **Sharing** on both Macs. The first visit creates a local sharing identity in macOS Keychain.
 Use the **Verify devices** sub-tab before sending to a new device.
-The **Share secrets** sub-tab stays unavailable until a device is verified.
-Select **Send my device card…** on each Mac, then choose AirDrop in the macOS share menu.
+The **Send secrets** sub-tab stays unavailable until a device is verified.
+Select **Send my card to…** on each Mac, then choose the other Mac in the picker.
+The app opens only the AirDrop picker. It does not show the full macOS share menu.
 Device cards contain public keys only.
 
 Ask the other person to send their device card back to you from .sct.
@@ -187,14 +189,15 @@ Compare the full pairing code on both screens through a trusted conversation.
 Select **Confirm recipient** only if both codes match. Complete verification on both Macs.
 Verify a new card if either device's keys change.
 
-Select **Continue to Share secrets**, or open the **Share secrets** sub-tab.
+Select **Continue to Send secrets**, or open the **Send secrets** sub-tab.
 Opening **Share secrets** from a project retains that project through verification and sub-tab changes.
 Select a verified recipient and individual secrets, or select all secrets in that project.
-Select **Send via AirDrop…**, then choose AirDrop in the macOS share menu.
+Select **Send to…**, then choose the recipient Mac in the picker.
 .sct encrypts the package for the selected device before it creates a transfer file.
 
 On the recipient Mac, accept AirDrop and open the `.sct-transfer` package in the signed .sct app.
-You can also select **Open transfer…** in Sharing.
+You can also open the **Receive secrets** sub-tab and select **Choose received file…**.
+The file picker opens in Downloads.
 Choose a registered destination project, then select **Import secrets**.
 .sct saves the imported copies in its configured `.sct/[project-name]/secrets.sct` file with fresh local Keychain keys.
 The sender's project name and folder path do not determine this destination.
@@ -210,9 +213,11 @@ This copy flow needs no relay, agent, or network connection beyond AirDrop.
 Grant restrictions and remote execution remain separate work under #22 and #33.
 
 AirDrop can first save the encrypted package in Downloads. Opening it in .sct selects its final vault project.
-The macOS share menu exposes no delivery-completion event to Electron.
-The sender therefore sees preparation status, not confirmed receipt.
-The recipient confirms import locally. GSAP animates local activity and respects reduced-motion settings.
+macOS reports the same result when the user sends the file and when the user selects Cancel.
+The app cannot detect delivery or cancellation. The sender sees preparation status, not confirmed receipt.
+The recipient confirms import locally.
+The Sharing screen animates encryption, transport, and decryption. The animations stop when reduced motion is on.
+The animated glyphs are decoration. They do not show ciphertext.
 
 .sct keeps outbound ciphertext in its private application data until app exit.
 After a crash, the next desktop startup removes expired outbound packages.
@@ -264,6 +269,7 @@ The storage format stays unchanged. Local vault operations need no CLI, MCP serv
 | `src/shared/` | TypeScript contracts for the preload API, projects, and secret metadata. |
 | `tests/` | Storage and vault tests, and an Electron UI test with network requests blocked. |
 | `electron.vite.config.ts` | Main, preload, and renderer build configuration. |
+| `native/airdrop.swift` | Helper that opens only the AirDrop picker. Electron's share menu cannot limit its services. |
 | `scripts/package-macos.ts` | Local macOS packaging, signing, and signature checks. |
 | `scripts/install-cli.ts` | Install the signed app's `sct` command link. |
 | `packages/env/` | Dependency-free TypeScript SDK and its package documentation. |

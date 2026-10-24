@@ -150,7 +150,7 @@ export class Sharing {
   }
 
   async cleanOutbox(): Promise<void> {
-    // ShareMenu exposes no transfer-completion event. Keep ciphertext until expiry or app exit.
+    // The AirDrop picker reports no transfer completion. Keep ciphertext until expiry or app exit.
     for (const name of await readdir(join(this.root, 'outbox')).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return []
       throw error

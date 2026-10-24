@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { gsap } from 'gsap'
 import type { Project } from '../../shared/projects'
 import type { SecretMetadata } from '../../shared/secrets'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../../shared/sharing'
 import { errorText, StatusLine, useOperation } from './operation'
+import { Scramble, Transit } from './SharingMotion'
 import type { Loaded, Run, SharingTab, UpdateSecrets } from './types'
 
 interface SharingViewProps {
@@ -18,8 +18,9 @@ interface SharingViewProps {
 export function SharingView({ projectId, tab, projects, secrets, updateSecrets }: SharingViewProps) {
   const [sharing, setSharing] = useState<Loaded<SharingState & { location: string }>>({ state: 'loading' })
   const [attempt, setAttempt] = useState(0)
+  const [receipt, setReceipt] = useState<Receipt | null>(null)
   const operation = useOperation()
-  const activeTab = sharing.state === 'ready' && sharing.value.peers.length > 0 ? tab ?? 'secrets' : 'devices'
+  const activeTab = activeSharingTab(sharing, receipt !== null, tab)
 
   useEffect(() => {
     let active = true
@@ -35,29 +36,15 @@ export function SharingView({ projectId, tab, projects, secrets, updateSecrets }
     return () => { active = false; unsubscribe() }
   }, [attempt])
 
-  async function openTransfer() {
-    await operation.run('Reading the encrypted transfer…', async () => {
-      const transfer = await window.sct.pickTransfer()
-      if (!transfer) return ''
-      setSharing((current) => current.state === 'ready' ? {
-        state: 'ready', value: { ...current.value, incoming: [...current.value.incoming.filter((item) => item.id !== transfer.id), transfer] }
-      } : current)
-      return 'Choose a destination project below.'
-    })
-  }
-
   return (
     <>
       <div className="page-heading">
         <div>
           <h1>Sharing</h1>
-          <p className="description">Send encrypted secrets through AirDrop. Choose a local project when you receive them.</p>
+          <p className="description">Send encrypted secrets to a nearby Mac. Choose a local project when you receive them.</p>
         </div>
-        <button type="button" className="secondary" disabled={operation.busy || sharing.state !== 'ready'}
-          onClick={() => { void openTransfer() }}>Open transfer…</button>
       </div>
 
-      <SharingActivity busy={operation.busy} />
       <StatusLine status={operation.status} />
       {sharing.state === 'loading' && <p role="status">Loading sharing…</p>}
       {sharing.state === 'error' && <p className="error" role="alert">{sharing.error}</p>}
@@ -70,24 +57,24 @@ export function SharingView({ projectId, tab, projects, secrets, updateSecrets }
 
       {sharing.state === 'ready' && (
         <>
-          {sharing.value.incoming.length > 0 && (
-            <section className="sharing-section" aria-labelledby="incoming-heading">
-              <h2 id="incoming-heading">Received transfers</h2>
-              {sharing.value.incoming.map((transfer) => (
-                <IncomingTransfer key={transfer.id} transfer={transfer} projects={projects} location={sharing.value.location}
-                  busy={operation.busy} run={operation.run} updateSecrets={updateSecrets}
-                  remove={() => setSharing((current) => current.state === 'ready' ? {
-                    state: 'ready', value: { ...current.value, incoming: current.value.incoming.filter((item) => item.id !== transfer.id) }
-                  } : current)} />
-              ))}
-            </section>
-          )}
-
+          {activeTab !== 'receive' && sharing.value.incoming.length > 0 && <p className="sharing-waiting">
+            <a href={sharingRoute('receive', projectId)}>
+              {sharing.value.incoming.length === 1 ? 'A received transfer is waiting.' : `${sharing.value.incoming.length} received transfers are waiting.`}
+            </a>
+          </p>}
           <SharingTabs activeTab={activeTab} projectId={projectId} canShare={sharing.value.peers.length > 0} />
           {sharing.value.peers.length > 0 && <div hidden={activeTab !== 'secrets'}>
             <SendSecrets projectId={projectId} active={activeTab === 'secrets'} projects={projects} secrets={secrets}
               peers={sharing.value.peers} busy={operation.busy} run={operation.run} />
           </div>}
+          <div hidden={activeTab !== 'receive'}>
+            <ReceiveSecrets device={sharing.value.device} incoming={sharing.value.incoming} canImport={sharing.value.peers.length > 0}
+              receipt={receipt} projects={projects} location={sharing.value.location} busy={operation.busy} run={operation.run}
+              updateSecrets={updateSecrets} setReceipt={setReceipt}
+              update={(incoming) => setSharing((current) => current.state === 'ready' ? {
+                state: 'ready', value: { ...current.value, incoming: incoming(current.value.incoming) }
+              } : current)} />
+          </div>
           <div hidden={activeTab !== 'devices'}>
             <DeviceVerification projectId={projectId} device={sharing.value.device} peers={sharing.value.peers}
               busy={operation.busy} run={operation.run}
@@ -97,9 +84,23 @@ export function SharingView({ projectId, tab, projects, secrets, updateSecrets }
           </div>
         </>
       )}
-      <footer>AirDrop may save the encrypted package in Downloads first. Open it in .sct to choose its vault project.</footer>
     </>
   )
+}
+
+interface Receipt {
+  id: string
+  sender: string
+  project: string
+  names: string[]
+}
+
+// A waiting transfer or a new receipt opens the Receive tab unless the route names another tab.
+function activeSharingTab(sharing: Loaded<SharingState>, received: boolean, tab?: SharingTab): SharingTab {
+  if (tab === 'receive') return 'receive'
+  if (sharing.state !== 'ready') return 'devices'
+  if (!tab && (received || sharing.value.incoming.length > 0)) return 'receive'
+  return sharing.value.peers.length > 0 ? tab ?? 'secrets' : 'devices'
 }
 
 function sharingRoute(tab: SharingTab, projectId?: string): string {
@@ -112,11 +113,12 @@ function SharingTabs({ activeTab, projectId, canShare }: { activeTab: SharingTab
       <nav className="sharing-tabs" aria-label="Sharing">
         <a href={sharingRoute('devices', projectId)} aria-current={activeTab === 'devices' ? 'page' : undefined}>Verify devices</a>
         {canShare ? (
-          <a href={sharingRoute('secrets', projectId)} aria-current={activeTab === 'secrets' ? 'page' : undefined}>Share secrets</a>
-        ) : <span aria-disabled="true" aria-describedby="sharing-verification-required">Share secrets</span>}
+          <a href={sharingRoute('secrets', projectId)} aria-current={activeTab === 'secrets' ? 'page' : undefined}>Send secrets</a>
+        ) : <span aria-disabled="true" aria-describedby="sharing-verification-required">Send secrets</span>}
+        <a href={sharingRoute('receive', projectId)} aria-current={activeTab === 'receive' ? 'page' : undefined}>Receive secrets</a>
       </nav>
       {!canShare && <p id="sharing-verification-required" className="field-help sharing-tab-help">
-        Verify a device before you can share secrets.
+        Verify a device before you can send secrets.
       </p>}
     </>
   )
@@ -134,6 +136,7 @@ function SendSecrets({ projectId, active, projects, secrets, peers, busy, run }:
   const source = projectId ?? ''
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [recipient, setRecipient] = useState(peers.length === 1 ? peers[0]?.id ?? '' : '')
+  const [sending, setSending] = useState(false)
   const projectField = useRef<HTMLSelectElement>(null)
   const recipientField = useRef<HTMLSelectElement>(null)
 
@@ -143,12 +146,19 @@ function SendSecrets({ projectId, active, projects, secrets, peers, busy, run }:
     else projectField.current?.focus()
   }, [active, projectId])
 
+  const recipientName = peers.find((peer) => peer.id === recipient)?.name ?? 'their Mac'
+
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await run('Encrypting the selected secrets…', async () => {
-      await window.sct.shareSecrets({ projectId: source, secretIds: [...selected], recipientId: recipient })
-      return 'Choose AirDrop, then select the same recipient in macOS. Their app confirms import.'
-    })
+    setSending(true)
+    try {
+      await run(`Encrypting the secrets. Choose ${recipientName} in the picker.`, async () => {
+        await window.sct.shareSecrets({ projectId: source, secretIds: [...selected], recipientId: recipient })
+        return `If you chose ${recipientName}, the encrypted secrets are on their way. Their app confirms import.`
+      })
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -172,15 +182,23 @@ function SendSecrets({ projectId, active, projects, secrets, peers, busy, run }:
               {peers.map((peer) => <option key={peer.id} value={peer.id}>{peer.name}</option>)}
             </select>
             <SecretSelection secrets={secrets} source={source} selected={selected} onChange={setSelected} />
-            <p className="field-help">Choose this same recipient in AirDrop. Only their Mac can open the secrets and choose a destination project.</p>
+            <p className="field-help">Choose the same Mac in the picker. Only that Mac can open the secrets and choose a destination project.</p>
             <div className="form-actions">
               <button type="submit" disabled={!source || !recipient || selected.size === 0}>
-                {busy ? 'Please wait…' : 'Send via AirDrop…'}
+                {busy ? 'Please wait…' : 'Send to…'}
               </button>
             </div>
           </fieldset>
         </form>
       )}
+      {sending && secrets.state === 'ready' && <div className="sharing-motion">
+        <ul className="sharing-names" aria-label="Secrets being encrypted">
+          {secrets.value.filter((secret) => selected.has(secret.id)).map((secret) => (
+            <li key={secret.id}><Scramble text={secret.name} mode="encrypt" /></li>
+          ))}
+        </ul>
+        <Transit from="This Mac" to={recipientName} />
+      </div>}
     </section>
   )
 }
@@ -226,6 +244,7 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
 }) {
   const [pairing, setPairing] = useState<PairingPreview | null>(null)
   const [compared, setCompared] = useState(false)
+  const [sendingCard, setSendingCard] = useState(false)
   const importButton = useRef<HTMLButtonElement>(null)
   const comparisonHeading = useRef<HTMLHeadingElement>(null)
 
@@ -234,10 +253,15 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
   }, [pairing])
 
   async function shareCard() {
-    await run('Opening the macOS share menu…', async () => {
-      await window.sct.shareDeviceCard()
-      return 'Choose AirDrop to send your public device card. Ask the other person to send their card back.'
-    })
+    setSendingCard(true)
+    try {
+      await run('Choose their Mac in the picker.', async () => {
+        await window.sct.shareDeviceCard()
+        return 'If you chose their Mac, your public device card is on its way. Ask them to send their card back.'
+      })
+    } finally {
+      setSendingCard(false)
+    }
   }
 
   async function addPeer() {
@@ -264,7 +288,7 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
       {peers.length > 0 && <section className="sharing-verified" aria-labelledby="verified-heading">
         <div className="group-heading">
           <h2 id="verified-heading">Verified devices</h2>
-          <a className="button-link" href={sharingRoute('secrets', projectId)}>Continue to Share secrets</a>
+          <a className="button-link" href={sharingRoute('secrets', projectId)}>Continue to Send secrets</a>
         </div>
         <ul className="sharing-peers" aria-label="Verified devices">
           {peers.map((peer) => <li key={peer.id}>
@@ -281,13 +305,14 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
       <ol className="sharing-setup">
         <li>
           <h3>Send your device card</h3>
-          <p>Choose AirDrop in the macOS share menu, then select their Mac. Your card contains public keys only.</p>
+          <p>Choose their Mac in the picker. Your card contains public keys only.</p>
           <button type="button" className={pairing || peers.length > 0 ? 'secondary' : undefined} disabled={busy}
-            onClick={() => { void shareCard() }}>Send my device card…</button>
+            onClick={() => { void shareCard() }}>Send my card to…</button>
+          {sendingCard && <Transit from="This Mac" to="Their Mac" />}
         </li>
         <li>
           <h3>Import their device card</h3>
-          <p>They send you their card from .sct. After AirDrop arrives, choose their .sct-device file from Downloads.</p>
+          <p>They send you their card from .sct. macOS saves it in Downloads. Choose their .sct-device file.</p>
           <button ref={importButton} type="button" className="secondary" disabled={busy}
             onClick={() => { void addPeer() }}>Import .sct-device file…</button>
         </li>
@@ -312,8 +337,8 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
         </div>
       )}
       <details className="sharing-details">
-        <summary>AirDrop cannot find the other Mac?</summary>
-        <p>Open Finder → AirDrop on both Macs. Enable Wi-Fi and Bluetooth, and allow discovery by Everyone.</p>
+        <summary>Their Mac is not in the picker?</summary>
+        <p>On both Macs, turn on Wi-Fi and Bluetooth. In Finder, open AirDrop and allow discovery by Everyone.</p>
       </details>
       <details className="sharing-details">
         <summary>This Mac’s device details</summary>
@@ -325,13 +350,77 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
   )
 }
 
-function IncomingTransfer({ transfer, projects, location, busy, run, updateSecrets, remove }: {
+function ReceiveSecrets({ device, incoming, canImport, receipt, projects, location, busy, run, updateSecrets, setReceipt, update }: {
+  device: SharingDevice
+  incoming: TransferPreview[]
+  canImport: boolean
+  receipt: Receipt | null
+  projects: Loaded<Project[]>
+  location: string
+  busy: boolean
+  run: Run
+  updateSecrets: UpdateSecrets
+  setReceipt: (receipt: Receipt) => void
+  update: (change: (incoming: TransferPreview[]) => TransferPreview[]) => void
+}) {
+  async function chooseFile() {
+    await run('Reading the received file…', async () => {
+      const transfer = await window.sct.pickTransfer()
+      if (!transfer) return ''
+      update((current) => [...current.filter((item) => item.id !== transfer.id), transfer])
+      return 'Choose a project for these secrets.'
+    })
+  }
+
+  return (
+    <>
+      {receipt && <section key={receipt.id} className="panel" aria-labelledby="receipt-heading">
+        <h2 id="receipt-heading">Received from {receipt.sender}</h2>
+        <Transit from={receipt.sender} to={receipt.project} arrived />
+        <ul className="sharing-names" aria-label={`Secrets imported into ${receipt.project}`}>
+          {receipt.names.map((name) => <li key={name}><Scramble text={name} mode="decrypt" /></li>)}
+        </ul>
+      </section>}
+      {incoming.length > 0 && <section className="sharing-section" aria-labelledby="incoming-heading">
+        <h2 id="incoming-heading">Received transfers</h2>
+        {incoming.map((transfer) => (
+          <IncomingTransfer key={transfer.id} transfer={transfer} projects={projects} location={location}
+            busy={busy} run={run} updateSecrets={updateSecrets} setReceipt={setReceipt}
+            remove={() => update((current) => current.filter((item) => item.id !== transfer.id))} />
+        ))}
+      </section>}
+      <section className="panel" aria-labelledby="receive-heading">
+        <h2 id="receive-heading">Receive secrets</h2>
+        {!canImport && <p className="field-help">Verify the sender’s device before you import their secrets.</p>}
+        <ol className="sharing-setup">
+          <li>
+            <h3>Ask them to send to this Mac</h3>
+            <p>They choose {device.name} in the picker. Accept the file when macOS asks.</p>
+          </li>
+          <li>
+            <h3>Open the received file</h3>
+            <p>macOS saves it in Downloads. Its name ends in .sct-transfer.</p>
+            <button type="button" className={incoming.length > 0 ? 'secondary' : undefined} disabled={busy}
+              onClick={() => { void chooseFile() }}>Choose received file…</button>
+          </li>
+          <li>
+            <h3>Choose a project</h3>
+            <p>The secrets appear on this tab. Choose the local project that keeps them.</p>
+          </li>
+        </ol>
+      </section>
+    </>
+  )
+}
+
+function IncomingTransfer({ transfer, projects, location, busy, run, updateSecrets, setReceipt, remove }: {
   transfer: TransferPreview
   projects: Loaded<Project[]>
   location: string
   busy: boolean
   run: Run
   updateSecrets: UpdateSecrets
+  setReceipt: (receipt: Receipt) => void
   remove: () => void
 }) {
   const [destination, setDestination] = useState('')
@@ -342,6 +431,7 @@ function IncomingTransfer({ transfer, projects, location, busy, run, updateSecre
     await run('Importing the encrypted transfer…', async () => {
       const imported = await window.sct.importTransfer({ transferId: transfer.id, projectId: destination })
       updateSecrets((current) => [...current.filter((secret) => !imported.some((saved) => saved.id === secret.id)), ...imported])
+      setReceipt({ id: transfer.id, sender: transfer.sender.name, project: project?.name ?? 'the selected project', names: imported.map((secret) => secret.name) })
       remove()
       return `Imported ${imported.length} ${imported.length === 1 ? 'secret' : 'secrets'} into ${project?.name ?? 'the selected project'}.`
     })
@@ -378,21 +468,4 @@ function IncomingTransfer({ transfer, projects, location, busy, run, updateSecre
       </form>
     </section>
   )
-}
-
-function SharingActivity({ busy }: { busy: boolean }) {
-  const indicator = useRef<HTMLSpanElement>(null)
-
-  useEffect(() => {
-    if (!busy) return
-    const media = gsap.matchMedia()
-    media.add('(prefers-reduced-motion: no-preference)', () => {
-      gsap.fromTo(indicator.current, { scaleX: 0.2, opacity: 0.5 }, {
-        scaleX: 1, opacity: 1, duration: 0.8, ease: 'steps(4)', repeat: -1, yoyo: true
-      })
-    })
-    return () => media.revert()
-  }, [busy])
-
-  return <div className="sharing-activity" aria-hidden="true" data-active={busy}><span ref={indicator} /></div>
 }

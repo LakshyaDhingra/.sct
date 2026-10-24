@@ -9,4 +9,4 @@ export type UpdateProjects = (change: (current: Project[]) => Project[]) => void
 
 export type UpdateSecrets = (change: (current: SecretMetadata[]) => SecretMetadata[]) => void
 
-export type SharingTab = 'devices' | 'secrets'
+export type SharingTab = 'devices' | 'secrets' | 'receive'
