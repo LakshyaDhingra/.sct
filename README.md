@@ -1,12 +1,12 @@
-# Vault: CalHacks 2026
+# .sct: CalHacks 2026
 
-Vault is a macOS credential and task handoff app built with Electron, React, and TypeScript.
+.sct is a macOS credential and task handoff app built with Electron, React, and TypeScript.
 Each device keeps its vault and private keys locally. Cloud-hosted SpacetimeDB relays encrypted messages between verified devices.
 Unchecked items describe planned behavior.
 
 ## MVP flow
 
-1. A local agent submits a secret or task through the Vault CLI.
+1. A local agent submits a secret or task through the .sct CLI.
 2. The Electron app encrypts the payload for a verified, paired recipient device.
 3. SpacetimeDB persists the encrypted message and routes it through authorized subscriptions over TLS.
 4. The recipient decrypts locally and notifies its user. Agent execution requires local approval.
@@ -14,26 +14,26 @@ Unchecked items describe planned behavior.
 
 ## MVP feature checklist
 
-- [ ] Desktop app: Electron, React, and TypeScript ([#24](https://github.com/omavashia2005/calhacks-vault/issues/24), [#13](https://github.com/omavashia2005/calhacks-vault/issues/13)).
-- [ ] Local vault: Keychain-backed secret storage and local private keys ([#6](https://github.com/omavashia2005/calhacks-vault/issues/6), [#26](https://github.com/omavashia2005/calhacks-vault/issues/26)).
-- [ ] Project scope: One demo project and the `dev` environment ([#7](https://github.com/omavashia2005/calhacks-vault/issues/7)).
-- [ ] Secret management: Create, list, and delete local secrets ([#25](https://github.com/omavashia2005/calhacks-vault/issues/25), [#26](https://github.com/omavashia2005/calhacks-vault/issues/26), [#6](https://github.com/omavashia2005/calhacks-vault/issues/6)).
-- [ ] CLI submission: Accept a secret or task from a local agent ([#5](https://github.com/omavashia2005/calhacks-vault/issues/5), [#7](https://github.com/omavashia2005/calhacks-vault/issues/7)).
-- [ ] Verified pairing: Confirm device keys before sharing ([#15](https://github.com/omavashia2005/calhacks-vault/issues/15)).
-- [ ] Encrypted relay: Persist and route handoffs through cloud-hosted SpacetimeDB ([#3](https://github.com/omavashia2005/calhacks-vault/issues/3), [#11](https://github.com/omavashia2005/calhacks-vault/issues/11), [#16](https://github.com/omavashia2005/calhacks-vault/issues/16), [#17](https://github.com/omavashia2005/calhacks-vault/issues/17)).
-- [ ] Recipient execution: Notify the user and launch an approved agent task ([#8](https://github.com/omavashia2005/calhacks-vault/issues/8), [#17](https://github.com/omavashia2005/calhacks-vault/issues/17), [#18](https://github.com/omavashia2005/calhacks-vault/issues/18)).
-- [ ] Delivery status: Return acknowledgments and execution results ([#11](https://github.com/omavashia2005/calhacks-vault/issues/11), [#14](https://github.com/omavashia2005/calhacks-vault/issues/14), [#17](https://github.com/omavashia2005/calhacks-vault/issues/17)).
-- [ ] Reliable delivery: Handle offline recipients, retries, expiry, and duplicate execution ([#16](https://github.com/omavashia2005/calhacks-vault/issues/16), [#17](https://github.com/omavashia2005/calhacks-vault/issues/17), [#19](https://github.com/omavashia2005/calhacks-vault/issues/19)).
-- [ ] Access control: Enforce injection-only grants and local approval ([#18](https://github.com/omavashia2005/calhacks-vault/issues/18)).
-- [ ] Local expiry: Block expired grants and remove their local secret material ([#19](https://github.com/omavashia2005/calhacks-vault/issues/19)).
-- [ ] Activity ledger: Show recipients, deadlines, delivery status, and execution outcomes ([#11](https://github.com/omavashia2005/calhacks-vault/issues/11), [#14](https://github.com/omavashia2005/calhacks-vault/issues/14)).
-- [ ] Claude integration: Expose the narrow MCP interface ([#4](https://github.com/omavashia2005/calhacks-vault/issues/4), [#9](https://github.com/omavashia2005/calhacks-vault/issues/9), [#10](https://github.com/omavashia2005/calhacks-vault/issues/10)).
-- [ ] Offline local access: Keep the vault usable during relay outages ([#12](https://github.com/omavashia2005/calhacks-vault/issues/12), [#20](https://github.com/omavashia2005/calhacks-vault/issues/20)).
+- [ ] Desktop app: Electron, React, and TypeScript ([#24](https://github.com/omavashia2005/.sct/issues/24), [#13](https://github.com/omavashia2005/.sct/issues/13)).
+- [ ] Local vault: Keychain-backed secret storage and local private keys ([#6](https://github.com/omavashia2005/.sct/issues/6), [#26](https://github.com/omavashia2005/.sct/issues/26)).
+- [ ] Project scope: One demo project and the `dev` environment ([#7](https://github.com/omavashia2005/.sct/issues/7)).
+- [ ] Secret management: Create, list, and delete local secrets ([#25](https://github.com/omavashia2005/.sct/issues/25), [#26](https://github.com/omavashia2005/.sct/issues/26), [#6](https://github.com/omavashia2005/.sct/issues/6)).
+- [ ] CLI submission: Accept a secret or task from a local agent ([#5](https://github.com/omavashia2005/.sct/issues/5), [#7](https://github.com/omavashia2005/.sct/issues/7)).
+- [ ] Verified pairing: Confirm device keys before sharing ([#15](https://github.com/omavashia2005/.sct/issues/15)).
+- [ ] Encrypted relay: Persist and route handoffs through cloud-hosted SpacetimeDB ([#3](https://github.com/omavashia2005/.sct/issues/3), [#11](https://github.com/omavashia2005/.sct/issues/11), [#16](https://github.com/omavashia2005/.sct/issues/16), [#17](https://github.com/omavashia2005/.sct/issues/17)).
+- [ ] Recipient execution: Notify the user and launch an approved agent task ([#8](https://github.com/omavashia2005/.sct/issues/8), [#17](https://github.com/omavashia2005/.sct/issues/17), [#18](https://github.com/omavashia2005/.sct/issues/18)).
+- [ ] Delivery status: Return acknowledgments and execution results ([#11](https://github.com/omavashia2005/.sct/issues/11), [#14](https://github.com/omavashia2005/.sct/issues/14), [#17](https://github.com/omavashia2005/.sct/issues/17)).
+- [ ] Reliable delivery: Handle offline recipients, retries, expiry, and duplicate execution ([#16](https://github.com/omavashia2005/.sct/issues/16), [#17](https://github.com/omavashia2005/.sct/issues/17), [#19](https://github.com/omavashia2005/.sct/issues/19)).
+- [ ] Access control: Enforce injection-only grants and local approval ([#18](https://github.com/omavashia2005/.sct/issues/18)).
+- [ ] Local expiry: Block expired grants and remove their local secret material ([#19](https://github.com/omavashia2005/.sct/issues/19)).
+- [ ] Activity ledger: Show recipients, deadlines, delivery status, and execution outcomes ([#11](https://github.com/omavashia2005/.sct/issues/11), [#14](https://github.com/omavashia2005/.sct/issues/14)).
+- [ ] Claude integration: Expose the narrow MCP interface ([#4](https://github.com/omavashia2005/.sct/issues/4), [#9](https://github.com/omavashia2005/.sct/issues/9), [#10](https://github.com/omavashia2005/.sct/issues/10)).
+- [ ] Offline local access: Keep the vault usable during relay outages ([#12](https://github.com/omavashia2005/.sct/issues/12), [#20](https://github.com/omavashia2005/.sct/issues/20)).
 
 Deferred from the MVP:
 
-- [ ] AirDrop sharing ([#22](https://github.com/omavashia2005/calhacks-vault/issues/22)).
-- [ ] Factory integration ([#23](https://github.com/omavashia2005/calhacks-vault/issues/23)).
+- [ ] AirDrop sharing ([#22](https://github.com/omavashia2005/.sct/issues/22)).
+- [ ] Factory integration ([#23](https://github.com/omavashia2005/.sct/issues/23)).
 - [ ] Access renewal.
 - [ ] Manual rotation.
 - [ ] Fetch.ai integration.
@@ -45,7 +45,7 @@ Core stack: Electron + React + TypeScript + macOS Keychain + cloud-hosted Spacet
 
 The Electron main process owns vault access, encryption, relay connections, and process launch.
 The React renderer uses a narrow preload bridge. It clears entered secret values after submission and never receives stored values.
-Vault has no separate application daemon.
+.sct has no separate application daemon.
 
 The relay stores ciphertext and minimal routing metadata.
 Plaintext secrets, tasks, execution output, and private keys stay off the relay.
@@ -64,12 +64,74 @@ Copied credentials and running processes can retain secret values.
 
 See [architecture and implementation order](docs/architecture.md) and the [technical glossary](docs/glossary.md).
 
+## Run the desktop app
+
+Use macOS, Bun 1.4.4 or later, and Node.js 22.18 or later.
+Install the dependencies once:
+
+```sh
+bun install
+```
+
+Start the app with one command:
+
+```sh
+bun run dev
+```
+
+The command builds the main process and preload script, starts the local renderer server, and opens the Electron window.
+The window opens without a relay connection, cloud credentials, or environment variables.
+
+Select **Add a project**. Select **Choose folder…** to open the macOS folder picker, or enter an absolute folder path.
+Enter a project name. Select **Add project** to save it.
+.sct requires an existing folder and rejects duplicate folders, including symbolic links to a saved folder.
+.sct saves project names and paths in `projects.json` under Electron's local `userData` directory.
+On macOS, this directory normally is `~/Library/Application Support/.sct`.
+.sct does not move, read, or change the selected folder's contents.
+Project names and paths remain available after restart. Credential storage and relay delivery are not implemented yet.
+
+## Project structure
+
+| Path | Purpose |
+|---|---|
+| `src/main/` | Electron lifecycle, native folder picker, validated requests, and local project storage. |
+| `src/preload/` | Three explicit project operations exposed through `contextBridge`. |
+| `src/renderer/` | React window, form, project list, and styles. |
+| `src/shared/` | TypeScript contracts for project metadata and requests. |
+| `tests/` | Storage tests and an Electron UI test with network requests blocked. |
+| `electron.vite.config.ts` | Main, preload, and renderer build configuration. |
+| `.github/workflows/checks.yml` | macOS checks and React Doctor. |
+| `out/` | Generated application files. Git ignores this directory. |
+
+The renderer uses context isolation and process sandboxing. It has no Node.js access.
+The main process checks each request's sender and validates project input before storage.
+The preload exposes only `listProjects`, `pickDirectory`, and `addProject`.
+Local startup does not import a relay client.
+
+## Check the implementation
+
+| Command | Check |
+|---|---|
+| `bun run check` | Canonical lint and local type check. |
+| `bun run typecheck` | TypeScript checks for Electron, React, shared contracts, and tests. |
+| `bun run typecheck:tsc` | Pinned official TypeScript compiler checks. |
+| `bun run lint` | ESLint checks. |
+| `bun run test` | Persistence, input validation, duplicate folders, concurrent saves, and invalid saved data. |
+| `bun run build` | TypeScript checks and builds for main, preload, and renderer. |
+| `bun run test:ui` | Build and test the actual Electron window on macOS. |
+| `bun start` | Open the most recent build without a development server. |
+
+The UI test blocks HTTP and WebSocket requests before the window opens.
+It checks renderer isolation, folder selection, cancellation, invalid paths, duplicate folders, and persistence after restart.
+The test supplies folder-picker results automatically. It does not operate the native macOS dialog.
+GitHub Actions runs these checks and React Doctor on macOS.
+
 ## Development requirements
 
-These checks apply when implementation begins:
+These checks apply to implementation:
 
 - Run [React Doctor](https://www.react.doctor) in GitHub Actions.
-- Run TypeScript checks (`tsc --noEmit`) and ESLint before merging.
+- Run `bun run check` and `bun run typecheck:tsc` before merging.
 - Check that the React frontend and Electron application compile.
 - Add automated UI tests after the foundation screens work. Ask Claude to independently run UI tests before merging or the final push.
 - Test encryption, storage, relay authorization, retries, expiry, duplicate execution, and offline behavior in CI.

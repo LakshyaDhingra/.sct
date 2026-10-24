@@ -1,8 +1,8 @@
-# Vault technical glossary
+# .sct technical glossary
 
 These terms describe the development plan. Implementation tests must establish the stated behavior.
 
-## Vault
+## .sct
 
 The Electron, React, and TypeScript app in this repository. It manages local credentials and encrypted device handoffs.
 
@@ -47,7 +47,7 @@ Relay checks that bind operations to an authenticated device identity. These che
 ## Electron main process
 
 The trusted TypeScript process for vault access, encryption, relay connections, expiry checks, and approved process launch.
-Vault uses no separate application daemon.
+.sct uses no separate application daemon.
 
 ## IPC
 
@@ -64,7 +64,7 @@ Command-line interface. Local agents submit tasks, secrets through stdin, or loc
 
 ## MCP
 
-Model Context Protocol. Claude Code uses narrow tools to request authorized Vault actions.
+Model Context Protocol. Claude Code uses narrow tools to request authorized .sct actions.
 
 ## Local approval
 
@@ -130,7 +130,7 @@ An authorization record for a recipient, credential, permitted operation, and ab
 
 ## Injection-only grant
 
-A permission that allows approved process injection. Vault denies reveal, copy, and reshare for received grants.
+A permission that allows approved process injection. .sct denies reveal, copy, and reshare for received grants.
 
 ## TTL
 

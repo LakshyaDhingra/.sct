@@ -1,8 +1,8 @@
-# Vault architecture and implementation order
+# .sct architecture and implementation order
 
 ## Architecture
 
-Vault uses Electron, React, and TypeScript. The Electron main process owns sensitive operations on each device.
+.sct uses Electron, React, and TypeScript. The Electron main process owns sensitive operations on each device.
 Cloud-hosted SpacetimeDB persists encrypted handoffs and exposes authorized subscriptions.
 Devices retain local vaults, cached activity, pending messages, and durable execution records.
 Separate local SpacetimeDB servers are no longer required.
