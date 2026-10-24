@@ -9,7 +9,39 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  verify:
+    name: ${{ matrix.name }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Lint
+            command: bun run lint
+          - name: Bun type check
+            command: bun run typecheck
+          - name: TypeScript compiler
+            command: bun run typecheck:tsc
+          - name: Storage tests
+            command: bun run test
+          - name: Application build
+            command: bun run build
+          - name: Electron UI tests
+            command: bun run test:ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.command }}
+
+  react-doctor:
+    name: React Doctor
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,10 +52,6 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run typecheck:tsc
-      - run: bun run test
-      - run: bun run test:ui
       - uses: millionco/react-doctor@main
         with:
           scope: full
