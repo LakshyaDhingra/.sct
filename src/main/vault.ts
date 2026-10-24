@@ -1,5 +1,5 @@
 import { AsyncEntry } from '@napi-rs/keyring'
-import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { isProjectName } from './projects.ts'
@@ -7,11 +7,11 @@ import type { ProjectStore } from './projects.ts'
 import type { Project } from '../shared/projects.ts'
 import type { SecretMetadata } from '../shared/secrets.ts'
 import type { TransferSecret } from './transfer.ts'
+import { decodeFile, encodeFile, open, seal } from './seal.ts'
+import type { Sealed } from './seal.ts'
 
 // secrets.sct layout: magic | IV | GCM tag | ciphertext. The ciphertext holds names and individually encrypted values.
 const magic = Buffer.from('SCT1')
-const ivLength = 12
-const tagLength = 16
 const vaultDirectoryName = '.sct'
 const secretsFileName = 'secrets.sct'
 
@@ -22,12 +22,6 @@ interface StoredSecret {
   tag: string
   value: string
   transferId?: string
-}
-
-interface Sealed {
-  iv: Buffer
-  tag: Buffer
-  ciphertext: Buffer
 }
 
 export class Vault {
@@ -423,13 +417,12 @@ export class Vault {
     }
 
     const invalid = `The secrets file of ${project.name} is invalid or belongs to a different project. .sct did not change it.`
-    if (contents.length < magic.length + ivLength + tagLength || !contents.subarray(0, magic.length).equals(magic)) {
-      throw new Error(invalid)
-    }
+    const sealed = decodeFile(magic, contents)
+    if (!sealed) throw new Error(invalid)
     const key = await this.readKey(project, 'file')
     let secrets: unknown
     try {
-      secrets = JSON.parse(open(key, decodeFile(contents), fileData(project)).toString('utf8'))
+      secrets = JSON.parse(open(key, sealed, fileData(project)).toString('utf8'))
     } catch (error) {
       throw new Error(invalid, { cause: error })
     }
@@ -438,8 +431,7 @@ export class Vault {
   }
 
   private async writeSecrets(project: Project, secrets: StoredSecret[]): Promise<void> {
-    const { iv, tag, ciphertext } = seal(await this.fileKey(project), Buffer.from(JSON.stringify(secrets)), fileData(project))
-    await this.writeSecretsFile(project, Buffer.concat([magic, iv, tag, ciphertext]))
+    await this.writeSecretsFile(project, encodeFile(magic, seal(await this.fileKey(project), Buffer.from(JSON.stringify(secrets)), fileData(project))))
   }
 
   private async writeSecretsFile(project: Project, contents: Buffer): Promise<void> {
@@ -470,31 +462,6 @@ function fileData(project: Project): Buffer {
 
 function valueData(project: Project, id: string): Buffer {
   return Buffer.from(`${project.id}/${id}`)
-}
-
-function seal(key: Buffer, plaintext: Buffer, data: Buffer): Sealed {
-  const iv = randomBytes(ivLength)
-  const cipher = createCipheriv('aes-256-gcm', key, iv).setAAD(data)
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
-  return { iv, tag: cipher.getAuthTag(), ciphertext }
-}
-
-function open(key: Buffer, { iv, tag, ciphertext }: Sealed, data: Buffer): Buffer {
-  const decipher = createDecipheriv('aes-256-gcm', key, iv).setAAD(data).setAuthTag(tag)
-  const plaintext = decipher.update(ciphertext)
-  try {
-    return Buffer.concat([plaintext, decipher.final()])
-  } finally {
-    // GCM can produce plaintext before final() checks the authentication tag.
-    plaintext.fill(0)
-  }
-}
-
-function decodeFile(contents: Buffer): Sealed {
-  const ivStart = magic.length
-  const tagStart = ivStart + ivLength
-  const dataStart = tagStart + tagLength
-  return { iv: contents.subarray(ivStart, tagStart), tag: contents.subarray(tagStart, dataStart), ciphertext: contents.subarray(dataStart) }
 }
 
 function encodeSealed({ iv, tag, ciphertext }: Sealed): Pick<StoredSecret, 'iv' | 'tag' | 'value'> {

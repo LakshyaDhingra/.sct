@@ -96,7 +96,44 @@ It does not use the deployment login and does not send secrets or private keys.
 Each demo device uses its own relay identity.
 When the app connects for the first time without a token, SpacetimeDB creates an identity and returns a token.
 The app keeps this token in the macOS Keychain and uses it again for later connections.
-Issue #12 adds this connection to the Electron main process.
 
 The app never uses the deployment login.
 Device private keys and secret values never go to the relay.
+
+## App connection
+
+The Electron main process connects to the relay when the app starts. Command-line launches do not connect.
+
+- The Keychain service `.sct-relay` holds the relay token in `token/<server>/<database>`.
+- After each connection, the app registers the public keys of its AirDrop device card with `registerDevice`.
+  The same device keys serve AirDrop and the relay.
+- The app subscribes to `my_inbox`, `my_sent`, and `my_peers`.
+- After a lost connection, the client reconnects and restores the subscriptions.
+  If the client stops, the app makes a new connection after 1 s, then up to 30 s between attempts.
+- The app saves the view rows in `relay/cache.sct` in the app data folder.
+  The file is encrypted with AES-256-GCM. Its key is in `.sct-relay` under `cache/<server>/<database>`.
+  Received ciphertext and delivery status stay available after a restart without the relay.
+- Local vault operations do not depend on the relay.
+
+The renderer reads the relay state with `getRelayState` and `onRelayChanged`.
+The state contains the connection status, the device identity, and metadata only.
+It never contains payloads, wrapped keys, public keys, or the relay token.
+
+The `SCT_RELAY` environment variable selects the relay:
+
+| Value | Relay |
+|---|---|
+| Not set | Maincloud, `sct-relay` |
+| `off` | No relay connection. The UI tests use this value. |
+| `<server URL>/<database>` | Another relay, for example `http://127.0.0.1:3000/sct-relay-test` |
+
+## Client bindings
+
+`src/main/relay` contains the TypeScript client code that SpacetimeDB generates from `packages/relay`.
+After a change to the relay module, generate the code again and commit it:
+
+```sh
+bun run relay:generate
+```
+
+The script needs the `spacetime` command in your `PATH`. Do not edit the generated files.

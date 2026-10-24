@@ -8,6 +8,7 @@ import { Vault } from './vault'
 import { runProject } from './launch'
 import { streamEnvironment } from './runtime'
 import { Sharing } from './sharing'
+import { Relay, relayServer } from './relay-connection'
 import type { Reply } from '../shared/api'
 
 let mainWindow: BrowserWindow | null = null
@@ -99,6 +100,11 @@ app.whenReady().then(async () => {
   }
   sharing = new Sharing(join(app.getPath('userData'), 'sharing'), vault, hostname().slice(0, 100))
   await sharing.cleanOutbox()
+  const relay = new Relay(relayServer(), join(app.getPath('userData'), 'relay', 'cache.sct'), sharing.deviceCard.bind(sharing),
+    () => mainWindow?.webContents.send('relay:changed'))
+  await relay.start()
+  app.on('will-quit', () => relay.stop())
+  handle('relay:state', () => relay.state())
   handle('projects:list', () => projects.list())
   handle('projects:add', (input) => vault.addProject(input))
   handle('projects:rename', (input) => vault.renameProject(input))
