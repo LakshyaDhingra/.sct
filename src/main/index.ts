@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { ProjectStore } from './projects'
 import { Vault } from './vault'
 import { runProject } from './launch'
+import { streamEnvironment } from './runtime'
 import type { Reply } from '../shared/api'
 
 let mainWindow: BrowserWindow | null = null
@@ -72,9 +73,14 @@ app.whenReady().then(async () => {
   const projects = new ProjectStore(join(app.getPath('userData'), 'projects.json'))
   const vault = new Vault(projects, join(app.getPath('userData'), 'settings.json'), homedir())
   await vault.start()
-  if (launchArguments[0] === 'run') {
+  if (launchArguments[0] === 'run' || launchArguments[0] === '_env') {
     app.dock?.hide()
-    app.exit(await runProject(projects, vault, launchArguments))
+    if (launchArguments[0] === '_env') {
+      await streamEnvironment(projects, vault, launchArguments[1])
+      app.exit(0)
+    } else {
+      app.exit(await runProject(projects, vault, launchArguments))
+    }
     return
   }
   handle('projects:list', () => projects.list())
@@ -104,7 +110,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow().catch(reportStartupError)
   })
 }).catch((error: unknown) => {
-  if (launchArguments[0] === 'run') {
+  if (launchArguments[0] === 'run' || launchArguments[0] === '_env') {
     console.error(error instanceof Error ? error.message : 'The project command could not start.')
     app.exit(1)
   } else {

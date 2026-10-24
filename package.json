@@ -16,11 +16,13 @@
     "check": "bun run lint && bun run typecheck",
     "typecheck": "bun check --no-script -p tsconfig.node.json && bun check --no-script -p tsconfig.web.json",
     "typecheck:tsc": "bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.node.json && bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.web.json",
-    "build": "bun run typecheck:tsc && electron-vite build",
+    "build": "bun run typecheck:tsc && bun run build:sdk && electron-vite build",
     "package:mac": "bun run build && bun scripts/package-macos.ts",
+    "install:cli": "bun scripts/install-cli.ts",
+    "build:sdk": "bun build packages/env/src/index.ts --target node --format esm --outfile packages/env/dist/index.js && bun node_modules/@typescript/native/bin/tsc -p packages/env/tsconfig.json",
     "lint": "eslint . --max-warnings 0",
     "react-doctor": "react-doctor --scope full --blocking error",
-    "test": "cd tests && bun test projects.test.ts vault.test.ts",
+    "test": "cd tests && bun test projects.test.ts vault.test.ts runtime.test.ts",
     "test:ui": "bun run build && cd tests && playwright test --config ../playwright.config.ts"
   },
   "dependencies": {

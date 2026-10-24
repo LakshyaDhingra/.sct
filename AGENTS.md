@@ -66,7 +66,8 @@ function requireConfig(input: unknown) {
 
 - Use Bun 1.4.4 or later for dependencies and project commands.
 - Run `bun run check` from the repository root for the full lint and type check.
-- During focused changes, run `bun typecheck` from the repository root. This repository has one package.
+- During focused changes, run `bun typecheck` from the repository root. It checks the desktop app and `packages/env` SDK sources.
+- Run `bun run build:sdk` to check SDK declarations with the pinned official TypeScript compiler.
 - Never run `tsc` directly. Use the repository scripts.
 - The local `typecheck` script uses `bun check --no-script` for the Electron and renderer configurations.
   The flag selects Bun's type checker instead of the root `check` script.

@@ -21,6 +21,12 @@ Issue #32 decrypts locally and supplies the child environment before the project
 The project folder needs no .env, replacement secret file, .sct manifest, symlink, or FIFO.
 Local launches work offline and do not depend on agent or relay issues.
 The launched program and its descendants can read or copy their environment.
+The CLI selects projects from the current folder and restarts the command when saved keys change.
+The dependency-free TypeScript SDK loads values through a signed helper's private process pipes.
+It updates the calling application's `process.env` without restarting that application.
+Library clients that retain keys require recreation through the SDK's `onChange` callback.
+Both paths check encrypted file revisions locally and resolve registry and storage changes before reading values.
+Neither path adds a local server, relay dependency, or project-local secret file.
 
 ## Phase 2 architecture
 

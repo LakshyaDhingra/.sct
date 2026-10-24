@@ -143,14 +143,32 @@ Values can be empty. Null characters are not valid environment values.
 Build the signed app with `bun run package:mac`. Run its executable from your terminal:
 
 ```sh
-./dist/sct-darwin-arm64/sct.app/Contents/MacOS/sct run "My project" -- bun run dev
+bun run install:cli
+cd /path/to/your/project
+sct run -- bun run dev
 ```
 
-Use the exact project name from the app. Use `sct-darwin-x64` on an Intel Mac.
+The CLI selects the project from the current folder. You can also use `sct run "My project" -- bun run dev`.
 The command runs in the registered source folder with that project's secrets available before startup.
 Project secrets override matching inherited variables. The parent environment stays unchanged.
 The launcher creates no `.env` or replacement secret files. The launched program and its descendants can read or copy their environment.
+Saved key changes automatically restart the command. Keep it running instead of repeating the launch command.
 See the [existing-project guide, operation details, and loader checks](docs/runtime-injection.md).
+
+### TypeScript SDK
+
+Build the local SDK with `bun run build:sdk`. Install `packages/env` into your application as described in the [SDK guide](packages/env/README.md).
+
+```ts
+import { loadEnv } from '@sct/env'
+
+await loadEnv()
+await import('./server.js')
+```
+
+The SDK updates `process.env` after saved changes without restarting the application.
+Use `onChange` to recreate library clients that retain credentials during initialization.
+The SDK has no runtime dependencies. The signed main process retains Keychain access and decryption.
 
 ### Vault storage
 
@@ -192,6 +210,8 @@ The storage format stays unchanged. Local vault operations need no CLI, MCP serv
 | `tests/` | Storage and vault tests, and an Electron UI test with network requests blocked. |
 | `electron.vite.config.ts` | Main, preload, and renderer build configuration. |
 | `scripts/package-macos.ts` | Local macOS packaging, signing, and signature checks. |
+| `scripts/install-cli.ts` | Install the signed app's `sct` command link. |
+| `packages/env/` | Dependency-free TypeScript SDK and its package documentation. |
 | `.github/workflows/checks.yml` | macOS checks and React Doctor. |
 | `out/` | Generated application files. Git ignores this directory. |
 
@@ -213,6 +233,8 @@ Local startup does not import a relay client.
 | `bun run test` | Persistence, input validation, duplicate folders, concurrent saves, invalid saved data, vault encryption, Keychain keys, and vault moves. |
 | `bun run build` | TypeScript checks and builds for main, preload, and renderer. |
 | `bun run package:mac` | Build and sign a local macOS application with the persistent Keychain identity. |
+| `bun run install:cli` | Install the `sct` command under `~/.local/bin`. |
+| `bun run build:sdk` | Build SDK JavaScript and declarations with the pinned official compiler. |
 | `bun run test:ui` | Build and test the actual Electron window on macOS. |
 | `bun start` | Open the most recent build without a development server. |
 
