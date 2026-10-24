@@ -1,7 +1,7 @@
 # Relay setup
 
 .sct uses SpacetimeDB Maincloud as the cloud-hosted relay.
-The relay stores ciphertext and routing metadata only. See the [architecture](architecture.md#phase-2-architecture).
+The relay stores ciphertext and routing metadata only. See the [architecture](architecture.md#relay-sharing-phase-2).
 
 ## Hosted database
 
@@ -102,7 +102,7 @@ Device private keys and secret values never go to the relay.
 
 ## App connection
 
-The Electron main process connects to the relay when the app starts. Command-line launches do not connect.
+The desktop app connects to the relay when it starts. Command-line launches do not connect, except an approved `relay_status` request.
 
 - The Keychain service `.sct-relay` holds the relay token in `token/<server>/<database>`.
 - After each connection, the app registers the public keys of its AirDrop device card with `registerDevice`.
@@ -158,7 +158,7 @@ Each peer in `getRelayState` has a trust state:
 Before a device sends a secret, the relay pair must be `Verified` and the peer trust state must be `verified`.
 Issue #17 applies this rule to sending.
 
-The renderer uses `requestRelayPair`, `confirmRelayPair`, and `removeRelayPair`.
+The preload bridge exposes `requestRelayPair`, `confirmRelayPair`, and `removeRelayPair`. No screen uses them yet. Issue #14 adds the relay sharing UI.
 `confirmRelayPair` takes the code on the screen. It fails if the current code is different, for example after a key change.
 
 ## Client bindings

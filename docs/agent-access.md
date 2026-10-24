@@ -14,14 +14,9 @@ bun run package:mac
 bun run install:cli
 ```
 
-The first command builds the desktop app, CLI, MCP server, TypeScript SDK, console demo, and bundled skills.
-It uses the existing `.sct Development` signing identity and `com.omavashia2005.sct` bundle identifier.
-See [signing setup](macos-signing.md) for local prerequisites.
-The second command installs `~/.local/bin/sct` as a launcher for the signed executable.
-
-Use `bun run build` for an unsigned development build.
-Use `bun run build:demo` to rebuild only `out/demo/index.cjs`.
-The demo source participates in both repository type checks.
+The first command builds and signs the app, CLI, MCP server, SDK, fixed demo, and skills. See [signing setup](macos-signing.md).
+The second command installs the `sct` launcher in `~/.local/bin`.
+Use `bun run build:demo` to rebuild only the demo at `out/demo/index.cjs`.
 
 ## CLI
 
@@ -130,7 +125,7 @@ Configure an MCP client with the installed executable:
 }
 ```
 
-Replace the command path with your installed CLI path.
+Replace the command path with your installed CLI path. Claude Code also accepts `${HOME}/.local/bin/sct`.
 This configuration contains no credentials and needs no environment settings for local operations.
 The client must connect stdin and stdout through private pipes.
 Stdout carries MCP messages only. Fixed diagnostics use stderr without submitted contents.
@@ -141,6 +136,7 @@ It also exposes each workflow as a prompt with the operation name and a Markdown
 MCP `run_demo` requires a saved `secretId`. MCP does not accept a plaintext credential value.
 See [the Claude Code demo project](../examples/claude-code/README.md) for a configuration that allows only the `sct` server.
 Claude Code permission decisions apply first. Each allowed call still requires the local .sct decision.
+PR #48 checked discovery, approval, refusal, expiry, reused approvals, rejected inputs, and transcripts through Claude Code 2.1.287.
 
 ## Skills
 
@@ -155,7 +151,7 @@ sct skills
 The result contains the bundled directory and skill names.
 For offline installation, copy the desired skill folders into your agent's skill directory.
 Common locations are `~/.agents/skills` for Codex and `~/.claude/skills` for Claude Code.
-After this PR merges, install through the standard skills CLI if available:
+If the skills CLI is available, install from GitHub:
 
 ```sh
 npx skills add omavashia2005/.sct
@@ -188,8 +184,7 @@ The user must choose that same recipient in macOS.
 `awaiting-transport` does not prove delivery, receipt, or import.
 The recipient accepts the file and imports it through the desktop app.
 
-PR #43 provides relay connection and encrypted cache support.
-`relay_status` starts that connection only when requested by an approved agent operation.
+`relay_status` starts the relay connection only for an approved request. Other operations open no connection.
 It returns metadata without tokens, payloads, wrapped keys, or private keys.
 Identify rows as cached when `connection` is not `connected`. Use `updatedAt` to report their age.
 This interface does not provide relay pairing, publication, or delivery acknowledgments.
@@ -197,13 +192,10 @@ See [relay configuration](relay.md) for `SCT_RELAY` and the cache behavior.
 
 ## Standalone runtime
 
-The existing `sct run` command remains independent of Agent Access and local approval requests.
-For a manual demo, save `SCT_DEMO_TOKEN` in a registered project and run from that project:
+`sct run` needs no Agent Access approval. For a manual demo, save `SCT_DEMO_TOKEN` in a registered project and run from that project:
 
 ```sh
 sct run -- node /absolute/path/to/.sct/out/demo/index.cjs
 ```
 
-Replace the path with your repository's build output.
 The demo prints presence only. It creates no project files and uses no network service.
-See [runtime injection](runtime-injection.md) for standalone runner behavior and trust requirements.

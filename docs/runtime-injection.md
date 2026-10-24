@@ -1,9 +1,8 @@
 # CLI and TypeScript runtime injection
 
-.sct supplies registered project secrets without `.env` files or project-local secret manifests.
-The CLI and SDK work offline. They require no relay, MCP server, or agent.
+.sct supplies a registered project's secrets without `.env` files or project-local manifests.
+The CLI and SDK work offline and need no relay, MCP server, or agent.
 The signed Electron main process owns Keychain access and decryption in both paths.
-See [local agent entrypoints and demo](agent-access.md) for the separate agent and MCP build outputs.
 
 ## Set up once
 
@@ -25,7 +24,7 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Open a new terminal after changing `PATH`.
-The link continues to use the same app location after rebuilds. Reinstall it if you move the app.
+The launcher keeps the same app location after rebuilds. Reinstall it if you move the app.
 Follow [local signing setup](macos-signing.md) if the build reports a missing identity.
 
 Open `dist/sct-darwin-arm64/sct.app` in Finder. Use `sct-darwin-x64` on an Intel Mac.
@@ -80,47 +79,13 @@ An untouched project needs at least one saved secret to create its encrypted vau
 
 ## TypeScript SDK: load inside your code
 
-Build the dependency-free SDK in the .sct repository:
+The dependency-free [`@sct/env` SDK](../packages/env/README.md) loads the same values inside your process and keeps `process.env` current without a restart.
+Build it with `bun run build:sdk` and install it with `bun add /absolute/path/to/.sct/packages/env`.
+It needs Node.js 22.18 or later or Bun on macOS, and the installed `sct` command on `PATH`.
 
-```sh
-bun run build:sdk
-```
-
-From your application's folder, install the local package:
-
-```sh
-bun add /absolute/path/to/.sct/packages/env
-```
-
-The SDK is not published to npm yet. The package contains JavaScript and TypeScript declarations, so consumers do not compile SDK sources.
-It requires Node.js 22.18 or later or Bun on macOS, and the installed `sct` command on `PATH`.
-
-Add a bootstrap entrypoint:
-
-```ts
-import { loadEnv } from '@sct/env'
-
-await loadEnv()
-await import('./server.js')
-```
-
-The SDK selects the project from the current folder. An optional `project` selects an exact registered name.
-The initial load completes before the promise resolves. Later snapshots update `process.env` without restarting the application.
-Removed keys restore their original inherited values, or disappear if none existed.
-Unrelated variables remain unchanged.
-
-Call the SDK before importing code that reads credentials during initialization.
-Static imports evaluate before a module body, regardless of their written position.
-Libraries that cache a key in a client object need that client to be recreated after changes.
-Use `onChange` for that step. Use `onError` to handle later access failures.
-See the [SDK API and lifecycle guide](../packages/env/README.md) for examples.
-
-The SDK launches a signed helper through private stdin and stdout pipes.
-It receives only the selected project's values and checks each response before applying it.
+The SDK starts a signed helper through private stdin and stdout pipes. It receives only the selected project's values.
 It opens no local server and uses no network service.
-Initial failures reject the load. Later failures restore inherited values and report an error while the helper waits for storage recovery.
-The returned function stops updates and restores inherited values. Helpers stop when the application exits.
-Neither the SDK nor its helper keeps an otherwise finished application alive.
+See the SDK guide for the bootstrap file, `onChange`, `onError`, and stopping updates.
 
 ## Check your existing project
 
@@ -169,9 +134,8 @@ Vault files stay encrypted in the configured external `.sct/[project-name]/secre
 The vault clears decrypted Buffers and copied value keys after use.
 It removes temporary environment references after their consumer completes.
 The launcher and SDK create no plaintext secret file, project manifest, copied key, symlink, or FIFO in the project.
-The installed CLI link belongs in `~/.local/bin`, outside the project.
+The installed `sct` launcher belongs in `~/.local/bin`, outside the project.
 
 Programs and their descendants can copy, print, persist, or send their environment. Run code that you trust.
 Updating or removing a key cannot revoke copies that a program already retained.
-The renderer API continues to return metadata only.
-Local runtime injection remains independent of relay sharing, Agent Access, and MCP.
+The renderer API returns metadata only.
