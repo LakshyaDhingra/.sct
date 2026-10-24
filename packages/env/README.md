@@ -37,7 +37,7 @@ Launch from the registered folder or a subfolder. The SDK selects the nearest re
 Use `await loadEnv({ project: 'My project' })` to select an exact registered name from another folder.
 
 Saved additions, updates, and deletions reach `process.env` within approximately 500 milliseconds while storage is available.
-Project secrets override matching inherited variables. Removing a managed key restores its original inherited value, or removes it when none existed.
+Project secrets override inherited variables with the same name. When you delete a managed key, the SDK restores the original inherited value. If no inherited value existed, the SDK deletes the variable.
 The SDK changes only the calling process. It does not update other processes or previously copied strings.
 
 Libraries that copy credentials into client objects need those clients to be recreated.

@@ -69,7 +69,8 @@ Run `bun run install:cli` to install the `sct` command. See [CLI and SDK setup](
 1. Run `bun run package:mac`.
 2. Record the certificate fingerprint from its output.
 3. Run `bun run package:mac` again.
-4. Check that both builds pass signature verification and report the same fingerprint.
+4. Check that both builds pass the signature check.
+5. Check that both builds report the same fingerprint.
 
 For an additional inspection on Apple Silicon:
 
@@ -86,7 +87,7 @@ The designated requirement must remain the same after a rebuild.
 
 This identity signs local development builds. It provides no Apple trust for public distribution and no notarization.
 Hardened Runtime stays on. The build grants `com.apple.security.cs.disable-library-validation`, because the local certificate has no Apple Team ID.
-Without it, macOS rejects Electron's framework at launch. The entitlement also permits other libraries without a matching Team ID, so use this configuration for development only.
+Without it, macOS rejects the Electron framework when the app starts. The entitlement also permits other libraries without a matching Team ID. Thus use this configuration for development only.
 CI checks the app without a signing key.
 
 See [Apple's certificate instructions](https://support.apple.com/guide/keychain-access/create-self-signed-certificates-kyca8916/mac)

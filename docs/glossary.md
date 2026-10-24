@@ -1,5 +1,12 @@
 # .sct glossary
 
+The docs use some words with one fixed meaning:
+
+- **Check** — Software tests a value, a signature, a schema, or a deadline.
+- **Verify** — A user compares the pairing code and accepts a device. The UI uses this word.
+- **Start** — Start a process.
+- **Delete** — Delete stored data, for example a file, a Keychain item, or a project.
+
 ## Local
 
 **.sct** — The Electron, React, and TypeScript app in this repository. It manages local secrets and encrypted handoffs between Macs.
@@ -10,7 +17,7 @@
 
 **Local vault** — The encrypted `secrets.sct` files and their Keychain keys. It works offline. See [vault storage](storage.md).
 
-**Electron main process** — The trusted process for vault access, encryption, process launch, sharing, relay connections, and Agent Access. .sct runs no separate daemon.
+**Electron main process** — The trusted process for vault access, encryption, child process starts, sharing, relay connections, and Agent Access. .sct runs no separate daemon.
 
 **Renderer** — The sandboxed process that shows the React UI. It receives metadata only and never a stored value.
 
@@ -30,7 +37,7 @@
 
 **MCP** — Model Context Protocol. `sct mcp` exposes the nine operations as tools, prompts, and skill resources.
 
-**Caller authentication** — .sct finds the first listed agent among the parent processes and checks its code signature. An impostor is rejected. An unverified caller needs an extra confirmation.
+**Caller authentication** — .sct finds the first listed agent among the parent processes and checks its code signature. .sct rejects an impostor. An unverified caller needs an extra statement from the user in the approval window.
 
 **Local approval** — The user's decision in the .sct window. It applies to one request. An agent or relay message cannot approve its own request.
 
@@ -68,7 +75,7 @@ These terms describe Phase 2 and issue #33. See the [architecture](architecture.
 
 **Correlation ID** — The original handoff ID in a reply.
 
-**Delivery acknowledgment** — An encrypted, authenticated reply that confirms durable receipt. It does not confirm execution.
+**Delivery acknowledgment** — An encrypted, authenticated reply that reports durable receipt. It does not report execution.
 
 **Grant** — An authorization for a recipient, a credential, a permitted operation, and an absolute deadline.
 
@@ -76,14 +83,14 @@ These terms describe Phase 2 and issue #33. See the [architecture](architecture.
 
 **Message expiry** — After this deadline, a message cannot be delivered or executed. It cannot revoke a delivered credential.
 
-**Access expiry** — After this deadline, a grant blocks new vault use. Cleanup removes grant material at startup or wake. It cannot remove external copies.
+**Access expiry** — After this deadline, a grant blocks new vault use. Cleanup deletes grant material when .sct starts or the Mac wakes. It cannot delete external copies.
 
-**Execution claim** — A durable record written before a remote task launches. A claim without an outcome after a crash needs local review.
+**Execution claim** — A durable record that .sct writes before a remote task starts. A claim without an outcome after a crash needs local review.
 
 **Execution result** — An encrypted reply with an approved outcome. It contains no credential or unrestricted log.
 
 **Replay attack** — A repeated delivery of an old message. Deadlines, receipt records, and execution records block it.
 
-**Redaction** — Removing recognized secret values from output. It does not make arbitrary output safe.
+**Redaction** — Deleting recognized secret values from output. It does not make arbitrary output safe.
 
 **Droid** — Factory's coding agent. Its integration is post-MVP work in #23.

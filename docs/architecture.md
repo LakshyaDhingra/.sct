@@ -1,7 +1,7 @@
 # .sct architecture and implementation order
 
 .sct uses Electron, React, and TypeScript. The Electron main process owns every sensitive operation on a Mac:
-vault access, Keychain, encryption, process launch, sharing, relay connections, and Agent Access.
+vault access, Keychain, encryption, the start of child processes, sharing, relay connections, and Agent Access.
 The sandboxed renderer calls a narrow preload bridge and receives metadata only.
 Each Mac keeps its own vault, private keys, cached activity, and pending messages. No local server or separate daemon runs.
 
@@ -19,9 +19,9 @@ See [runtime injection](runtime-injection.md).
 
 1. Identify the caller. .sct finds the first listed agent among the parent processes and checks its code signature.
    An impostor fails before any other check. An unverified caller needs an extra confirmation in the approval window.
-2. Validate the request against a strict schema. Unknown fields and arbitrary commands fail.
+2. Check the request against a strict schema. Unknown fields and arbitrary commands fail.
 3. Show the local approval window. Each approval applies to one request and one deadline.
-4. Run the operation and return metadata or a fixed outcome. Results contain no secret value and no process log.
+4. Run the operation. Return metadata or a fixed outcome. Results contain no secret value and no process log.
 
 Local operations open no relay connection. `relay_status` connects only when an approved request asks for it.
 See [Agent Access](agent-access.md).
@@ -45,7 +45,7 @@ SpacetimeDB keeps a separate delivery status for each recipient.
 ```mermaid
 flowchart LR
   subgraph A[Sender device]
-    SU[Sharing UI] <-->|validated preload IPC| SM[Electron main process]
+    SU[Sharing UI] <-->|checked preload IPC| SM[Electron main process]
     SM <--> SK[(Local vault and Keychain)]
     SM <--> SQ[(Pending ciphertext and activity)]
   end
@@ -87,12 +87,12 @@ sequenceDiagram
   R->>RUser: Notify user and show received metadata
   R->>DB: Publish encrypted correlated acknowledgment
   DB-->>S: Deliver acknowledgment when sender connects
-  S->>SUser: Show confirmed receipt for each recipient
+  S->>SUser: Show the receipt for each recipient
   Note over S,R: Retries reuse IDs and cannot repeat secret import
 ```
 
-Receipt confirms durable delivery. It does not confirm execution.
-No step launches a process or requires an agent.
+A receipt shows durable delivery. It does not show execution.
+No step starts a process or needs an agent.
 
 ## Relay keys and authorization
 
@@ -113,7 +113,7 @@ Use TLS for every relay connection.
 Bind each device to an authenticated relay identity.
 Both users verify device keys before sharing.
 A relay identity alone does not establish trust in a public key.
-Require new verification after a peer key changes.
+If a peer key changes, require a new verification.
 
 Check that the claimed sender matches the authenticated caller.
 Authorize pair registration, publication, reads, subscriptions, and status changes.
@@ -157,7 +157,7 @@ The recipient app protects the secret locally before it calls `acknowledge`.
 A third identity sees no rows of another pair.
 
 Issue #11 defines the `pair` table and the pair reducers.
-Both users compare the pairing code in the app before they confirm. See [relay pairing](relay.md#pairing).
+Both users compare the pairing code in the app before they accept the pair. See [relay pairing](relay.md#pairing).
 This first version does not contain signatures, deadlines, or retries. Issues #16, #19, and #17 add them.
 A reused message ID always fails. Issue #17 adds retries that reuse the original ID.
 Until #19 adds deadlines, messages and delivery rows stay on the relay.
@@ -166,12 +166,12 @@ The first version records receipt with the `acknowledge` reducer. Issue #16 adds
 ## Phase 2 delivery and expiry rules
 
 1. Persist outbound ciphertext locally before publication.
-2. Persist accepted ciphertext on the relay before confirming publication.
+2. Persist accepted ciphertext on the relay before the relay reports a successful publication.
 3. Restore authorized subscriptions and pending delivery after reconnect.
 4. Retry with bounded backoff and the original message ID.
 5. Reject an ID reused with different contents.
 6. Check the signature, verified sender, recipient, grant, and deadlines before local import.
-7. Protect the received secret locally and persist receipt before sending an acknowledgment.
+7. Protect the received secret locally. Persist the receipt. Then send an acknowledgment.
 8. Return existing receipt status for duplicate delivery without another secret import.
 9. Persist acknowledgments for offline senders.
 10. Retain duplicate-delivery records through the replay window.
@@ -187,9 +187,9 @@ Received injection-only grants deny reveal, copy, and reshare from the time of i
 These restrictions belong to Phase 2 and do not depend on agent approval.
 
 Check grant expiry before import and access, at startup, after resume, and during scheduled cleanup.
-Remove expired recipient Keychain entries and applicable encrypted files.
+Delete expired recipient Keychain entries and the applicable encrypted files.
 Persist cleanup outcomes and queue an encrypted expiry notification for the sender.
-Cleanup cannot run while the app is closed or the device is asleep.
+Cleanup cannot run while the app does not run or the Mac sleeps.
 Cleanup must finish before new access after startup or resume.
 External copies can retain delivered credentials.
 
@@ -197,7 +197,7 @@ External copies can retain delivered credentials.
 
 Local vault operations remain available during relay outages.
 Persist pending transfers, replies, grant deadlines, delivery records, and cached activity locally.
-The UI identifies cached status separately from confirmed remote status.
+The UI shows cached status separately from remote status that the relay reported.
 Cross-device delivery and acknowledgments require the relay.
 Local expiry checks do not depend on a live subscription.
 
@@ -208,22 +208,22 @@ It extends #16 envelopes and #17 delivery for encrypted task requests, refusals,
 The standalone local request contracts remain independent of relay identities and wire envelopes.
 
 Require local recipient approval tied to the task, grant, recipient, and message ID.
-Check the permitted operation, active grant, and deadline immediately before launch.
+Check the permitted operation, the active grant, and the deadline immediately before the start.
 A relay message or agent cannot approve its own execution.
 Reject arbitrary commands and reused approval responses.
-Reuse the approved local launch path from #8 and runtime injection from #32.
+Use again the approved local start path from #8 and the runtime injection from #32.
 
-Persist an execution claim before launch.
+Persist an execution claim before the start.
 Persist outcomes and encrypted, signed, correlated replies for offline senders.
 Return approved, redacted results only.
 Keep secrets, task contents, and execution output inside ciphertext.
 Do not relay unrestricted agent logs.
 
 Durable execution records prevent duplicate delivery from automatically repeating execution.
-A claim without a durable outcome after a crash requires local review before another launch.
+After a crash, a claim without a durable outcome needs local review before another start.
 Retain execution records through the replay window.
 Do not promise exactly-once execution of arbitrary process side effects.
-An expired grant blocks new launches but cannot remove credentials from an already-running process.
+An expired grant blocks new starts. It cannot delete credentials from a process that runs already.
 
 Keep receipt distinct from awaiting approval, running, completed, refused, expired, and uncertain execution.
 Local Agent Access stays usable without the relay. Sharing stays usable without an agent.
@@ -295,7 +295,7 @@ These issues have no direct or indirect relay dependency.
 | 4.2 | [#23](https://github.com/omavashia2005/.sct/issues/23) | Add Factory integration through the narrow MCP interface | #10, #9, #18 | Open |
 | 4.3 | [#40](https://github.com/omavashia2005/.sct/issues/40) | Create experimental Wallet cards and share them through AirDrop | #24 | Open |
 
-Issue #30 was workflow maintenance. Issue #21 is closed because demo rehearsal is outside development scope.
+Issue #30 was workflow maintenance. Issue #21 stays closed, because demo rehearsal is outside development scope.
 
 ## Reference documentation
 

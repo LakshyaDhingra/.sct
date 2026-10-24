@@ -31,16 +31,16 @@ bun run dev
 
 `bun run dev` opens the app. It needs no relay, cloud credentials, or environment variables.
 
-For the `sct` command, file associations, and Keychain access that stays the same after rebuilds, build the signed app:
+Build the signed app to get the `sct` command and the file associations. The signed app also keeps its Keychain access after a rebuild.
 
 ```sh
-bun run package:mac   # one-time Keychain setup: docs/macos-signing.md
-bun run install:cli   # installs ~/.local/bin/sct
+bun run package:mac   # Do the one-time Keychain setup in docs/macos-signing.md first.
+bun run install:cli   # This installs ~/.local/bin/sct.
 ```
 
 ## Use
 
-**Projects and secrets.** Select **Add a project** and choose an existing folder. Select **Open secrets** to add, update, or delete secrets.
+**Projects and secrets.** Select **Add a project**. Choose an existing folder. Select **Open secrets** to add, update, or delete secrets.
 The window never shows a stored value. .sct does not read or change files in the project folder. See [vault storage](docs/storage.md).
 
 **Run a project with its secrets.** From the project folder:
@@ -49,7 +49,7 @@ The window never shows a stored value. .sct does not read or change files in the
 sct run -- bun run dev
 ```
 
-The command receives the secrets in its environment. A saved change restarts it. No `.env` file is necessary. See [runtime injection](docs/runtime-injection.md).
+The command receives the secrets in its environment. A saved change restarts the command. The project needs no `.env` file. See [runtime injection](docs/runtime-injection.md).
 
 **Load secrets in code.** The dependency-free [`@sct/env` SDK](packages/env/README.md) keeps `process.env` current without a restart:
 
@@ -60,7 +60,7 @@ await loadEnv()
 await import('./server.js')
 ```
 
-**Share with another Mac.** Open **Sharing** on both Macs, verify each other's device once, then select **Send to…**.
+**Share with another Mac.** Open **Sharing** on both Macs. Verify the other Mac one time. Then select **Send to…**.
 The recipient chooses the local project that receives the secrets. See [sharing](docs/sharing.md).
 
 **Let an agent use secrets.** `sct agent` and `sct mcp` expose nine operations. Each request opens a local approval window.
@@ -68,10 +68,10 @@ Results contain metadata only. See [Agent Access](docs/agent-access.md) and the 
 
 ## Security model
 
-- The Electron main process owns the vault, Keychain access, encryption, and process launch.
-- The renderer is sandboxed. It receives metadata only and never a stored value, private key, or relay token.
+- The Electron main process owns the vault, Keychain access, encryption, and the start of child processes.
+- Electron runs the renderer in a sandbox. The renderer receives metadata only. It never receives a stored value, a private key, or a relay token.
 - Each secret value has its own key in macOS Keychain. Vault files contain ciphertext only.
-- Shared packages are encrypted for one verified device. The recipient checks the sender, signature, and deadline before import.
+- The sender's app encrypts each shared package for one verified device. Before import, the recipient's app checks the sender, the signature, and the deadline.
 - An agent cannot approve its own request. .sct identifies the calling agent by its code signature.
 - A program that receives a secret can copy it. Expiry and deletion cannot revoke copies.
 
@@ -104,6 +104,6 @@ See [architecture](docs/architecture.md) and the [glossary](docs/glossary.md).
 | `bun run test:ui` | Build and test the Electron windows with network requests blocked |
 | `bun run react-doctor` | React Doctor |
 | `bun run build:sdk` | Build the SDK and check its declarations |
-| `bun run package:mac` | Build, sign, and verify the macOS app |
+| `bun run package:mac` | Build and sign the macOS app, then check its signature |
 
 GitHub Actions runs these checks on macOS. Contributors and agents follow [AGENTS.md](AGENTS.md).

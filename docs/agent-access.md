@@ -15,7 +15,7 @@ bun run install:cli
 ```
 
 The first command builds and signs the app, CLI, MCP server, SDK, fixed demo, and skills. See [signing setup](macos-signing.md).
-The second command installs the `sct` launcher in `~/.local/bin`.
+The second command installs the `sct` command script in `~/.local/bin`.
 Use `bun run build:demo` to rebuild only the demo at `out/demo/index.cjs`.
 
 ## CLI
@@ -90,8 +90,8 @@ A shell tool usually starts `sct agent`, so the agent is a more distant ancestor
 - A listed agent that passes its check becomes a verified caller. The approval window shows its name.
 - A process with a listed agent name that fails the check is an impostor. .sct rejects each request before local approval.
   The result has status `failed` and names the failed signature check.
-- A caller with no listed agent among its ancestors is unverified. The approval window labels it as unverified.
-  Approval also requires the user to select **I started this request myself**.
+- If no listed agent is among the ancestors, the approval window labels the caller as unverified.
+  Before approval, the user must also select **I started this request myself**.
 
 Caller authentication identifies the program. It does not replace local approval.
 A verified agent can still request an operation that the user must refuse.
