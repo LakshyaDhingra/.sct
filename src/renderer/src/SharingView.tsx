@@ -5,19 +5,21 @@ import type { Project } from '../../shared/projects'
 import type { SecretMetadata } from '../../shared/secrets'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../../shared/sharing'
 import { errorText, StatusLine, useOperation } from './operation'
-import type { Loaded, Run, UpdateSecrets } from './types'
+import type { Loaded, Run, SharingTab, UpdateSecrets } from './types'
 
 interface SharingViewProps {
   projectId?: string
+  tab?: SharingTab
   projects: Loaded<Project[]>
   secrets: Loaded<SecretMetadata[]>
   updateSecrets: UpdateSecrets
 }
 
-export function SharingView({ projectId, projects, secrets, updateSecrets }: SharingViewProps) {
+export function SharingView({ projectId, tab, projects, secrets, updateSecrets }: SharingViewProps) {
   const [sharing, setSharing] = useState<Loaded<SharingState & { location: string }>>({ state: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const operation = useOperation()
+  const activeTab = sharing.state === 'ready' && sharing.value.peers.length > 0 ? tab ?? 'secrets' : 'devices'
 
   useEffect(() => {
     let active = true
@@ -81,12 +83,18 @@ export function SharingView({ projectId, projects, secrets, updateSecrets }: Sha
             </section>
           )}
 
-          <SendSecrets projectId={projectId} projects={projects} secrets={secrets} peers={sharing.value.peers}
-            busy={operation.busy} run={operation.run} />
-          <DeviceVerification device={sharing.value.device} peers={sharing.value.peers} busy={operation.busy} run={operation.run}
-            onVerified={(device) => setSharing((current) => current.state === 'ready' ? {
-              state: 'ready', value: { ...current.value, peers: [...current.value.peers.filter((peer) => peer.id !== device.id), device] }
-            } : current)} />
+          <SharingTabs activeTab={activeTab} projectId={projectId} canShare={sharing.value.peers.length > 0} />
+          {sharing.value.peers.length > 0 && <div hidden={activeTab !== 'secrets'}>
+            <SendSecrets projectId={projectId} active={activeTab === 'secrets'} projects={projects} secrets={secrets}
+              peers={sharing.value.peers} busy={operation.busy} run={operation.run} />
+          </div>}
+          <div hidden={activeTab !== 'devices'}>
+            <DeviceVerification projectId={projectId} device={sharing.value.device} peers={sharing.value.peers}
+              busy={operation.busy} run={operation.run}
+              onVerified={(device) => setSharing((current) => current.state === 'ready' ? {
+                state: 'ready', value: { ...current.value, peers: [...current.value.peers.filter((peer) => peer.id !== device.id), device] }
+              } : current)} />
+          </div>
         </>
       )}
       <footer>AirDrop may save the encrypted package in Downloads first. Open it in .sct to choose its vault project.</footer>
@@ -94,47 +102,77 @@ export function SharingView({ projectId, projects, secrets, updateSecrets }: Sha
   )
 }
 
-function SendSecrets({ projectId, projects, secrets, peers, busy, run }: {
+function sharingRoute(tab: SharingTab, projectId?: string): string {
+  return `#/sharing/${tab}${projectId ? `/${encodeURIComponent(projectId)}` : ''}`
+}
+
+function SharingTabs({ activeTab, projectId, canShare }: { activeTab: SharingTab; projectId?: string; canShare: boolean }) {
+  return (
+    <>
+      <nav className="sharing-tabs" aria-label="Sharing">
+        <a href={sharingRoute('devices', projectId)} aria-current={activeTab === 'devices' ? 'page' : undefined}>Verify devices</a>
+        {canShare ? (
+          <a href={sharingRoute('secrets', projectId)} aria-current={activeTab === 'secrets' ? 'page' : undefined}>Share secrets</a>
+        ) : <span aria-disabled="true" aria-describedby="sharing-verification-required">Share secrets</span>}
+      </nav>
+      {!canShare && <p id="sharing-verification-required" className="field-help sharing-tab-help">
+        Verify a device before you can share secrets.
+      </p>}
+    </>
+  )
+}
+
+function SendSecrets({ projectId, active, projects, secrets, peers, busy, run }: {
   projectId?: string
+  active: boolean
   projects: Loaded<Project[]>
   secrets: Loaded<SecretMetadata[]>
   peers: SharingDevice[]
   busy: boolean
   run: Run
 }) {
-  const [source, setSource] = useState(projectId ?? '')
+  const source = projectId ?? ''
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
-  const [recipient, setRecipient] = useState('')
+  const [recipient, setRecipient] = useState(peers.length === 1 ? peers[0]?.id ?? '' : '')
+  const projectField = useRef<HTMLSelectElement>(null)
+  const recipientField = useRef<HTMLSelectElement>(null)
+
+  useEffect(() => {
+    if (!active) return
+    if (projectId) recipientField.current?.focus()
+    else projectField.current?.focus()
+  }, [active, projectId])
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     await run('Encrypting the selected secrets…', async () => {
       await window.sct.shareSecrets({ projectId: source, secretIds: [...selected], recipientId: recipient })
-      return 'Choose AirDrop in the macOS share menu. Receipt is confirmed on the recipient Mac.'
+      return 'Choose AirDrop, then select the same recipient in macOS. Their app confirms import.'
     })
   }
 
   return (
     <section className="panel" aria-labelledby="send-heading">
       <h2 id="send-heading">Send secrets</h2>
-      {peers.length === 0 && <p>Verify a recipient below before you send secrets.</p>}
       {projects.state === 'loading' && <p role="status">Loading projects…</p>}
       {projects.state === 'ready' && projects.value.length === 0 && <p><a href="#/">Add a project</a> to store and send secrets.</p>}
       {projects.state === 'ready' && projects.value.length > 0 && (
         <form onSubmit={(event) => { void send(event) }}>
           <fieldset disabled={busy}>
             <label htmlFor="sharing-project">Source project</label>
-            <select id="sharing-project" value={source} required onChange={(event) => { setSource(event.target.value); setSelected(new Set()) }}>
+            <select ref={projectField} id="sharing-project" value={source} required onChange={(event) => {
+              window.location.hash = sharingRoute('secrets', event.target.value)
+            }}>
               <option value="">Choose a project</option>
               {projects.value.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
             <label htmlFor="sharing-recipient">Verified recipient</label>
-            <select id="sharing-recipient" value={recipient} required onChange={(event) => setRecipient(event.target.value)}>
+            <select ref={recipientField} id="sharing-recipient" value={recipient} required onChange={(event) => setRecipient(event.target.value)}>
               <option value="">Choose a verified device</option>
               {peers.map((peer) => <option key={peer.id} value={peer.id}>{peer.name}</option>)}
             </select>
             <SecretSelection secrets={secrets} source={source} selected={selected} onChange={setSelected} />
-            <p className="field-help">Only the verified recipient can decrypt this transfer. They choose the destination project.</p>
+            <p className="field-help">Choose this same recipient in AirDrop. Only their Mac can open the secrets and choose a destination project.</p>
             <div className="form-actions">
               <button type="submit" disabled={!source || !recipient || selected.size === 0}>
                 {busy ? 'Please wait…' : 'Send via AirDrop…'}
@@ -178,7 +216,8 @@ function SecretSelection({ secrets, source, selected, onChange }: {
   )
 }
 
-function DeviceVerification({ device, peers, busy, run, onVerified }: {
+function DeviceVerification({ projectId, device, peers, busy, run, onVerified }: {
+  projectId?: string
   device: SharingDevice
   peers: SharingDevice[]
   busy: boolean
@@ -187,6 +226,19 @@ function DeviceVerification({ device, peers, busy, run, onVerified }: {
 }) {
   const [pairing, setPairing] = useState<PairingPreview | null>(null)
   const [compared, setCompared] = useState(false)
+  const importButton = useRef<HTMLButtonElement>(null)
+  const comparisonHeading = useRef<HTMLHeadingElement>(null)
+
+  useEffect(() => {
+    if (pairing) comparisonHeading.current?.focus()
+  }, [pairing])
+
+  async function shareCard() {
+    await run('Opening the macOS share menu…', async () => {
+      await window.sct.shareDeviceCard()
+      return 'Choose AirDrop to send your public device card. Ask the other person to send their card back.'
+    })
+  }
 
   async function addPeer() {
     await run('Reading the device card…', async () => {
@@ -202,46 +254,74 @@ function DeviceVerification({ device, peers, busy, run, onVerified }: {
       const verified = await window.sct.confirmSharingPeer(pairing.token)
       onVerified(verified)
       setPairing(null)
+      setCompared(false)
       return `${verified.name} is verified on this Mac.`
     })
   }
 
   return (
-    <section className="panel" aria-labelledby="devices-heading">
-      <h2 id="devices-heading">Verify devices</h2>
-      <p>Exchange device cards through AirDrop in both directions. Compare the pairing code on both Macs before you confirm.</p>
-      <p className="field-help">This Mac: {device.name}</p>
-      <p className="path sharing-fingerprint">{device.fingerprint}</p>
-      <div className="form-actions">
-        <button type="button" className="secondary" disabled={busy} onClick={() => {
-          void run('Opening the macOS share menu…', async () => {
-            await window.sct.shareDeviceCard()
-            return 'Choose AirDrop to share this Mac’s public device card. Private keys stay on this Mac.'
-          })
-        }}>Share device card…</button>
-        <button type="button" className="secondary" disabled={busy} onClick={() => { void addPeer() }}>Add recipient…</button>
-      </div>
+    <>
+      {peers.length > 0 && <section className="sharing-verified" aria-labelledby="verified-heading">
+        <div className="group-heading">
+          <h2 id="verified-heading">Verified devices</h2>
+          <a className="button-link" href={sharingRoute('secrets', projectId)}>Continue to Share secrets</a>
+        </div>
+        <ul className="sharing-peers" aria-label="Verified devices">
+          {peers.map((peer) => <li key={peer.id}>
+            <details className="sharing-details">
+              <summary>{peer.name}</summary>
+              <p className="sharing-fingerprint">{peer.fingerprint}</p>
+            </details>
+          </li>)}
+        </ul>
+      </section>}
+      <section className="panel" aria-labelledby="devices-heading">
+      <h2 id="devices-heading">{peers.length === 0 ? 'Verify your first device' : 'Verify another device'}</h2>
+      <p>Set up both Macs once. Send your public device card, and ask them to send theirs back.</p>
+      <ol className="sharing-setup">
+        <li>
+          <h3>Send your device card</h3>
+          <p>Choose AirDrop in the macOS share menu, then select their Mac. Your card contains public keys only.</p>
+          <button type="button" className={pairing || peers.length > 0 ? 'secondary' : undefined} disabled={busy}
+            onClick={() => { void shareCard() }}>Send my device card…</button>
+        </li>
+        <li>
+          <h3>Import their device card</h3>
+          <p>They send you their card from .sct. After AirDrop arrives, choose their .sct-device file from Downloads.</p>
+          <button ref={importButton} type="button" className="secondary" disabled={busy}
+            onClick={() => { void addPeer() }}>Import .sct-device file…</button>
+        </li>
+      </ol>
       {pairing && (
         <div className="pairing-review" aria-labelledby="pairing-heading">
-          <h3 id="pairing-heading">Verify {pairing.device.name}</h3>
+          <h3 ref={comparisonHeading} tabIndex={-1} id="pairing-heading">Compare codes with {pairing.device.name}</h3>
           <p className="pairing-code" aria-label="Pairing code">{pairing.code}</p>
-          <p className="field-help">Both Macs must show this exact code. Do not confirm if the codes differ.</p>
+          <p className="field-help">Have them import your card too. Both Macs must show this exact code before either person confirms.</p>
           <label className="check-field">
             <input type="checkbox" checked={compared} disabled={busy} onChange={(event) => setCompared(event.target.checked)} />
             I compared this code on both Macs
           </label>
           <div className="form-actions">
-            <button type="button" className="secondary" disabled={busy} onClick={() => { setPairing(null); setCompared(false) }}>Cancel verification</button>
-            <button type="button" disabled={busy || !compared} onClick={() => { void confirmPeer() }}>Confirm device</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => {
+              setPairing(null)
+              setCompared(false)
+              importButton.current?.focus()
+            }}>Cancel verification</button>
+            <button type="button" disabled={busy || !compared} onClick={() => { void confirmPeer() }}>Confirm recipient</button>
           </div>
         </div>
       )}
-      {peers.length > 0 && (
-        <ul className="sharing-peers" aria-label="Verified devices">
-          {peers.map((peer) => <li key={peer.id}><span>{peer.name}</span><span className="sharing-fingerprint">{peer.fingerprint}</span></li>)}
-        </ul>
-      )}
-    </section>
+      <details className="sharing-details">
+        <summary>AirDrop cannot find the other Mac?</summary>
+        <p>Open Finder → AirDrop on both Macs. Enable Wi-Fi and Bluetooth, and allow discovery by Everyone.</p>
+      </details>
+      <details className="sharing-details">
+        <summary>This Mac’s device details</summary>
+        <p>{device.name}</p>
+        <p className="path sharing-fingerprint">{device.fingerprint}</p>
+      </details>
+      </section>
+    </>
   )
 }
 

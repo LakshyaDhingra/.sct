@@ -175,15 +175,20 @@ The SDK has no runtime dependencies. The signed main process retains Keychain ac
 ### Share secrets through AirDrop
 
 Open **Sharing** on both Macs. The first visit creates a local sharing identity in macOS Keychain.
-Select **Share device card…** on each Mac, then choose AirDrop in the macOS share menu.
+Use the **Verify devices** sub-tab before sending to a new device.
+The **Share secrets** sub-tab stays unavailable until a device is verified.
+Select **Send my device card…** on each Mac, then choose AirDrop in the macOS share menu.
 Device cards contain public keys only.
 
-Select **Add recipient…** to open the other Mac's `.sct-device` card.
+Ask the other person to send their device card back to you from .sct.
+Select **Import .sct-device file…** to choose their received card, usually from Downloads.
+This action opens the native file picker.
 Compare the full pairing code on both screens through a trusted conversation.
-Confirm only if both codes match. Complete verification on both Macs.
+Select **Confirm recipient** only if both codes match. Complete verification on both Macs.
 Verify a new card if either device's keys change.
 
-Open a project and select **Share secrets**.
+Select **Continue to Share secrets**, or open the **Share secrets** sub-tab.
+Opening **Share secrets** from a project retains that project through verification and sub-tab changes.
 Select a verified recipient and individual secrets, or select all secrets in that project.
 Select **Send via AirDrop…**, then choose AirDrop in the macOS share menu.
 .sct encrypts the package for the selected device before it creates a transfer file.
