@@ -82,6 +82,9 @@ bun run dev
 The command builds the main process and preload script, starts the local renderer server, and opens the Electron window.
 The window opens without a relay connection, cloud credentials, or environment variables.
 
+To create a locally signed macOS application, follow [local macOS signing](docs/macos-signing.md).
+After the one-time Keychain setup, run `bun run package:mac`.
+
 Select **Add a project**. Select **Choose folder…** to open the macOS folder picker, or enter an absolute folder path.
 Enter a project name. Select **Add project** to save it.
 .sct requires an existing folder and rejects duplicate folders, including symbolic links to a saved folder.
@@ -100,6 +103,7 @@ Project names and paths remain available after restart. Credential storage and r
 | `src/shared/` | TypeScript contracts for project metadata and requests. |
 | `tests/` | Storage tests and an Electron UI test with network requests blocked. |
 | `electron.vite.config.ts` | Main, preload, and renderer build configuration. |
+| `scripts/package-macos.ts` | Local macOS packaging, signing, and signature checks. |
 | `.github/workflows/checks.yml` | macOS checks and React Doctor. |
 | `out/` | Generated application files. Git ignores this directory. |
 
@@ -118,6 +122,7 @@ Local startup does not import a relay client.
 | `bun run lint` | ESLint checks. |
 | `bun run test` | Persistence, input validation, duplicate folders, concurrent saves, and invalid saved data. |
 | `bun run build` | TypeScript checks and builds for main, preload, and renderer. |
+| `bun run package:mac` | Build and sign a local macOS application with the persistent Keychain identity. |
 | `bun run test:ui` | Build and test the actual Electron window on macOS. |
 | `bun start` | Open the most recent build without a development server. |
 
