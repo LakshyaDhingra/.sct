@@ -51,7 +51,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 a { color: var(--color-accent); text-underline-offset: 4px; }
 a:hover { color: var(--color-ink); }
 ::selection { background: var(--color-accent-wash); color: var(--color-ink); }
-.app { max-width: 1200px; min-height: 100vh; margin: 0 auto; border-inline: 1px solid var(--color-rule); }
+.app { min-height: 100vh; }
 .app-header { display: flex; align-items: center; justify-content: space-between; min-height: 54px; padding: 0 32px; border-bottom: 1px solid var(--color-rule); background: var(--color-paper-2); }
 .header-start { display: flex; align-self: stretch; align-items: stretch; }
 .header-start nav { display: flex; }
