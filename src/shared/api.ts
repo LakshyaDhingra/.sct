@@ -2,8 +2,9 @@ import type { Project, ProjectInput, ProjectRename } from './projects'
 import type { SecretInput, SecretMetadata, SecretReference, SecretUpdate } from './secrets'
 import type { SharingAPI } from './sharing'
 import type { RelayAPI } from './relay'
+import type { AgentAPI } from './agent'
 
-export interface SctAPI extends SharingAPI, RelayAPI {
+export interface SctAPI extends SharingAPI, RelayAPI, AgentAPI {
   listProjects: () => Promise<Project[]>
   pickDirectory: () => Promise<string | null>
   addProject: (input: ProjectInput) => Promise<Project>

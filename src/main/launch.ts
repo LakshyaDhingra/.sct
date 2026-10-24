@@ -3,18 +3,24 @@ import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { constants } from 'node:os'
 import type { ProjectStore } from './projects'
 import type { Vault } from './vault'
+import type { Project } from '../shared/projects'
 import { resolveProject, watchProject } from './runtime'
 
 export function launchProject(vault: Vault, projectId: string, executable: string, args: string[], stdio: StdioOptions = 'inherit', detached = false): Promise<ChildProcess> {
-  return vault.withProjectEnvironment(projectId, (project, environment) => new Promise<ChildProcess>((resolve, reject) => {
+  return vault.withProjectEnvironment(projectId, (project, environment) => launchCommand(project, environment, executable, args, stdio, detached))
+}
+
+export function launchCommand(project: Project, environment: NodeJS.ProcessEnv, executable: string, args: string[],
+  stdio: StdioOptions = 'inherit', detached = false, signal?: AbortSignal): Promise<ChildProcess> {
+  return new Promise<ChildProcess>((resolve, reject) => {
     try {
-      const child = spawn(executable, args, { cwd: project.directory, env: environment, stdio, shell: false, detached })
+      const child = spawn(executable, args, { cwd: project.directory, env: environment, stdio, shell: false, detached, signal })
       child.once('error', () => reject(new Error('Cannot start the command. Check the executable and project folder.')))
       child.once('spawn', () => resolve(child))
     } catch {
       reject(new Error('Cannot start the command. Check the executable and project folder.'))
     }
-  }))
+  })
 }
 
 export async function runProject(projects: ProjectStore, vault: Vault, args: string[]): Promise<number> {

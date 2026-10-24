@@ -97,6 +97,7 @@ No step launches a process or requires an agent.
 ## Standalone Agent Access
 
 Reuse #32 for local project resolution and environment injection.
+See [local agent entrypoints and demo](agent-access.md) for build commands and the current entrypoint scope.
 Issues #5, #7, #4, #18, #8, #9, and #10 add local requests, approval, execution, and MCP.
 Their contracts contain no relay identities, paired recipients, or wire envelopes.
 Issue #18 enforces local project access before #8 launches the fixed approved task.
@@ -104,7 +105,9 @@ Issue #33 later maps remote tasks and received grants onto this local path.
 Claude Code's own model service can require internet access independently of the relay.
 
 Issue #8 provides local approval and execution states where needed.
-Issue #9 exposes list_secrets, describe_secret, and run_demo only.
+Issue #9 exposes project_setup, list_secrets, describe_secret, delete_secret, send_secrets_to, and run_demo.
+Pairing and sharing use the existing encrypted AirDrop workflow. relay_status exposes the connection and cached metadata from #12.
+Local operations initialize no relay connection. Each agent operation requires a separate local approval.
 Issue #10 checks local Claude integration, refusal, deadlines, and reused approvals.
 Keep plaintext values outside command arguments, logs, renderer responses, and MCP results.
 

@@ -1,7 +1,7 @@
 import { defineConfig } from 'electron-vite'
 
 export default defineConfig({
-  main: {},
+  main: { build: { externalizeDeps: { exclude: ['@modelcontextprotocol/server', 'zod'] } } },
   preload: {},
   renderer: {}
 })
