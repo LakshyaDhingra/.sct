@@ -80,6 +80,18 @@ codesign --display --requirements - dist/sct-darwin-arm64/sct.app
 The identifier must be `com.omavashia2005.sct`. The authority must be `.sct Development`.
 The designated requirement must remain the same after a rebuild.
 
+### Issue #6 check
+
+On 2026-10-24, the local check used macOS 26.5.1 on arm64, Electron 45.0.0, and Bun 1.4.4.
+The signed Electron executable created an isolated vault fixture and read its value through `Vault.withSecret`.
+After a signed rebuild, the executable read the same value with the same Keychain keys.
+Both builds passed signature verification with the `.sct Development` identity.
+
+This check used the signed executable in Node mode with the vault source. It did not operate the packaged GUI.
+The existing Electron UI checks separately passed with network requests blocked.
+The fixture used separate Keychain items. The signed executable deleted the fixture project and its keys after the check.
+This check ran on one Mac. It did not repeat the two-device checks from #2.
+
 ## Scope
 
 This identity signs local development builds. It does not establish Apple trust for public distribution or provide notarization.

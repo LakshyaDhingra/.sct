@@ -1,6 +1,6 @@
 const { app, session } = require('electron')
 
-app.setPath('userData', process.argv[2])
+app.setPath('userData', process.argv.splice(2, 1)[0])
 app.whenReady().then(() => {
   session.defaultSession.webRequest.onBeforeRequest(
     { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },

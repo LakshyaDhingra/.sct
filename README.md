@@ -11,7 +11,7 @@ The basic local app exists. Unchecked items describe planned behavior.
 3. Integrate remote agent requests and results in [#33](https://github.com/omavashia2005/.sct/issues/33) when both branches are ready.
 
 The project folder must contain no .env file or equivalent secret-bearing file.
-The planned local runner resolves the registered project and its external encrypted vault.
+The local runner resolves the registered project and its external encrypted vault.
 It injects variables into the child environment before the project command starts.
 See [runtime injection and loader compatibility](docs/runtime-injection.md).
 
@@ -29,8 +29,8 @@ See [all issue prerequisites](docs/architecture.md#implementation-order).
 
 Local foundation:
 
-- [ ] Check local vault operations (#6).
-- [ ] Inject project variables without .env or replacement project files ([1.7, #32](https://github.com/omavashia2005/.sct/issues/32)).
+- [x] Check local vault operations (#6).
+- [x] Inject project variables without .env or replacement project files ([1.7, #32](https://github.com/omavashia2005/.sct/issues/32)).
 
 Relay and sharing branch:
 
@@ -136,6 +136,21 @@ Names use letters, digits, and underscores, and cannot start with a digit. A pro
 .sct clears the value field after each request. The window never shows a stored value.
 Select **Update value** to replace a value. Select **Delete** to remove a secret.
 Select **All secrets** to see the secret names of all projects.
+Values can be empty. Null characters are not valid environment values.
+
+### Run a project
+
+Build the signed app with `bun run package:mac`. Run its executable from your terminal:
+
+```sh
+./dist/sct-darwin-arm64/sct.app/Contents/MacOS/sct run "My project" -- bun run dev
+```
+
+Use the exact project name from the app. Use `sct-darwin-x64` on an Intel Mac.
+The command runs in the registered source folder with that project's secrets available before startup.
+Project secrets override matching inherited variables. The parent environment stays unchanged.
+The launcher creates no `.env` or replacement secret files. The launched program and its descendants can read or copy their environment.
+See the [existing-project guide, operation details, and loader checks](docs/runtime-injection.md).
 
 ### Vault storage
 
@@ -151,6 +166,20 @@ Deleting a project removes its vault folder and its Keychain keys. Relay deliver
 If Keychain rejects a secret deletion, .sct restores the encrypted entry so you can retry.
 A failed project deletion keeps the project and its remaining secret entries for another attempt.
 The local secret workflow implements [#26](https://github.com/omavashia2005/.sct/issues/26) and does not require a relay connection.
+
+Main-process code can use `Vault.withSecret(reference, use)` for an internal read under [#6](https://github.com/omavashia2005/.sct/issues/6).
+The reference contains `projectId` and the secret `id`.
+The method validates the reference and decrypts only the selected value with its existing Keychain key.
+It waits for the callback, then clears the plaintext Buffer, including after a callback failure.
+It also clears its copy of the value key after decryption.
+
+A sender can encrypt the Buffer in the callback and return ciphertext. It must not retain or return plaintext.
+Clearing a Buffer cannot clear copies that the callback creates, including strings.
+Do not call another vault operation from the callback. Vault operations use the same serial queue.
+
+No preload method or IPC handler exposes this read operation.
+Consumers must keep plaintext out of renderer responses, logs, command arguments, and files.
+The storage format stays unchanged. Local vault operations need no CLI, MCP server, or relay.
 
 ## Project structure
 
@@ -190,7 +219,7 @@ Local startup does not import a relay client.
 The UI test blocks HTTP and WebSocket requests before the window opens.
 It checks renderer isolation, folder selection, cancellation, invalid paths, duplicate folders, and persistence after restart.
 It also checks secret save, update, and delete, value clearing, project rename and delete, and a vault move.
-It checks metadata-only renderer responses and Keychain key removal after deletion.
+It checks metadata-only renderer responses. The vault tests check Keychain key removal after deletion.
 The vault tests and the UI test use real macOS Keychain. They remove their Keychain items when they pass.
 The vault tests also check deletion retries after a rejected Keychain operation.
 The test supplies folder-picker results automatically. It does not operate the native macOS dialog.
