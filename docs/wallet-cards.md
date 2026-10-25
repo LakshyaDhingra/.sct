@@ -38,11 +38,13 @@ Type fake details only. The service can keep the request IP address, the pass st
 ## Create and send a card
 
 1. Open **Cards**.
-2. Type a fake cardholder name and a card label.
+2. Type a fake cardholder name and a card label. Each field holds a maximum of 40 characters.
 3. Select **Create and send to…**.
 4. .sct requests the signed pass, downloads it, and checks it.
 5. In the AirDrop picker, choose the iPhone.
 6. On the iPhone, accept the pass, examine the preview, and tap **Add**.
+
+A modal shows a credit card that moves from a Mac drawing to an iPhone drawing. See [send and receive animations](sharing.md#send-and-receive-animations).
 
 If the iPhone is not in the picker, open Control Center on the iPhone.
 Set AirDrop to **Everyone for 10 Minutes**. Turn on Wi-Fi and Bluetooth on both devices.
@@ -59,7 +61,7 @@ Set AirDrop to **Everyone for 10 Minutes**. Turn on Wi-Fi and Bluetooth on both 
 
 The AirDrop picker reports the same result for a sent file and for **Cancel**.
 Thus .sct cannot know if the iPhone received the pass or added it to Wallet.
-The status line tells you this after the picker closes.
+The status line and the modal caption tell you this after the picker closes.
 
 .sct keeps signed passes in the `cards/outbox` folder of the app data.
 .sct deletes that folder when the app starts and when the app quits.

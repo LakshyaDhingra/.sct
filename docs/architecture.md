@@ -28,8 +28,14 @@ See [Agent Access](agent-access.md).
 
 ## AirDrop sharing
 
-The working sharing flow encrypts selected secrets for one verified device and sends the file through AirDrop.
-See [sharing](sharing.md). Relay sharing below is the next transport.
+The AirDrop sharing flow encrypts selected secrets for one verified device and sends the file through AirDrop.
+See [sharing](sharing.md). Relay sharing below is the second transport. The **Relay** tab of **Sharing** uses it.
+
+## Mock Wallet cards
+
+The main process sends fake card fields to walletmcppass.com and downloads the signed pass.
+It checks the pass and opens the AirDrop picker for an iPhone. This flow uses no secret, device key, or relay.
+See [mock Wallet cards](wallet-cards.md).
 
 ## Relay sharing (Phase 2)
 
@@ -103,8 +109,9 @@ Issue #11 defines the schema and communication contract.
 Issue #16 defines shared transfer and acknowledgment types.
 Use shared TypeScript types where the relay and clients require the same contract.
 
-Each envelope carries an ID, sender, kind, correlation ID, delivery deadline, nonce, signature, and ciphertext.
-It also carries one wrapped message key for each recipient.
+A transfer envelope carries an ID, kind, sender identity and device, recipients, creation time, delivery deadline, ephemeral key, IV, authentication tag, ciphertext, and signature.
+A receipt envelope carries the transfer ID as its correlation ID.
+Each recipient gets one wrapped message key in its own `delivery` row.
 Keep secrets, grant contents, and descriptive secret names inside ciphertext.
 Authenticate routing fields with the ciphertext.
 Device keys use X25519 for encryption and Ed25519 for signatures.
@@ -135,6 +142,7 @@ All tables are private. Clients read data only through the views.
 | `pair` | `id` (primary key), `initiator`, `peer`, `status` (`Pending` or `Verified`) | Two devices that can share secrets |
 | `message` | `id` (primary key, set by the sender), `sender`, `payload`, `createdAt`, `deliverBy` | One row for each published transfer |
 | `delivery` | `id` (primary key), `messageId`, `recipient`, `wrappedKey`, `status` (`Pending` or `Received`), `receivedAt` | One row for each recipient of a message |
+| `receipt` | `deliveryId` (primary key), `receipt` | The encrypted signed receipt of one delivery |
 
 | Reducer | Behavior |
 |---|---|
@@ -142,8 +150,8 @@ All tables are private. Clients read data only through the views.
 | `requestPair(peer)` | Creates a `Pending` pair from the caller to the peer. It rejects the request if either device has no `device` row, the peer is the caller, or the two devices already have a pair. |
 | `confirmPair(pairId)` | Sets the pair to `Verified`. Only the peer of the pair can call it. |
 | `removePair(pairId)` | Deletes the pair. Either device of the pair can call it, for example after the pairing codes differ. The devices can then pair again. |
-| `publishSecret(id, payload, deliverBy, recipients)` | Saves one message and one pending delivery for each verified recipient. An exact retry with the same ID succeeds. A changed retry fails. |
-| `acknowledge(messageId, receipt)` | Saves the encrypted receipt and marks the caller's delivery as received. A second call keeps the first receipt. |
+| `publishSecret(id, payload, deliverBy, recipients)` | Saves one message and one pending delivery for each recipient. Each recipient must have a `Verified` pair with the caller. The deadline must be in the next 7 days. An exact retry with the same ID succeeds. A changed retry fails. |
+| `acknowledge(messageId, receipt)` | Saves the encrypted receipt in `receipt` and marks the caller's delivery as received. A second call keeps the first receipt. |
 
 | View | Rows |
 |---|---|
@@ -293,7 +301,7 @@ These issues have no direct or indirect relay dependency.
 |---|---|---|---|---|
 | 4.1 | [#22](https://github.com/omavashia2005/.sct/issues/22) | Add AirDrop transport for encrypted handoffs | #20, #15, #16, #18 | Open |
 | 4.2 | [#23](https://github.com/omavashia2005/.sct/issues/23) | Add Factory integration through the narrow MCP interface | #10, #9, #18 | Open |
-| 4.3 | [#40](https://github.com/omavashia2005/.sct/issues/40) | Create experimental Wallet cards and share them through AirDrop | #24 | Open |
+| 4.3 | [#40](https://github.com/omavashia2005/.sct/issues/40) | Create experimental Wallet cards and share them through AirDrop | #24 | Built. The iPhone test is open. |
 
 Issue #30 was workflow maintenance. Issue #21 stays closed, because demo rehearsal is outside development scope.
 

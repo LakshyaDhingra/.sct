@@ -53,7 +53,7 @@ The docs use some words with one fixed meaning:
 
 **Transfer package** — A `.sct-transfer` file. It holds selected secrets, encrypted and signed for one verified device. It expires after 24 hours.
 
-**AirDrop** — The macOS transport that the working sharing flow uses. .sct opens only the AirDrop picker.
+**AirDrop** — The macOS transport for transfer packages, device cards, and mock Wallet cards. .sct opens only the AirDrop picker.
 
 **Relay** — Cloud-hosted SpacetimeDB that persists and routes ciphertext. It never receives the keys that decrypt payloads. See [relay setup](relay.md).
 
@@ -61,9 +61,11 @@ The docs use some words with one fixed meaning:
 
 **TLS** — Protects each relay connection. Payload encryption separately protects contents from the relay.
 
-## Planned relay delivery
+**Mock Wallet card** — A generic Apple Wallet pass with fake data. walletmcppass.com signs it. .sct sends it to an iPhone through AirDrop. See [mock Wallet cards](wallet-cards.md).
 
-These terms describe Phase 2 and issue #33. See the [architecture](architecture.md).
+## Relay delivery
+
+These terms describe Phase 2 relay delivery and the planned issue #33. See the [architecture](architecture.md).
 
 **Admin** — The user who publishes a secret.
 
@@ -83,7 +85,7 @@ These terms describe Phase 2 and issue #33. See the [architecture](architecture.
 
 **Message expiry** — After this deadline, a message cannot be delivered or executed. It cannot revoke a delivered credential.
 
-**Access expiry** — After this deadline, a grant blocks new vault use. Cleanup deletes grant material when .sct starts or the Mac wakes. It cannot delete external copies.
+**Access expiry** — After this deadline, a grant blocks new vault use. Cleanup in #19 will delete grant material when .sct starts or the Mac wakes. It cannot delete external copies.
 
 **Execution claim** — A durable record that .sct writes before a remote task starts. A claim without an outcome after a crash needs local review.
 

@@ -88,6 +88,7 @@ The designated requirement must remain the same after a rebuild.
 This identity signs local development builds. It provides no Apple trust for public distribution and no notarization.
 Hardened Runtime stays on. The build grants `com.apple.security.cs.disable-library-validation`, because the local certificate has no Apple Team ID.
 Without it, macOS rejects the Electron framework when the app starts. The entitlement also permits other libraries without a matching Team ID. Thus use this configuration for development only.
+The build also grants `com.apple.security.cs.allow-jit`.
 CI checks the app without a signing key.
 
 See [Apple's certificate instructions](https://support.apple.com/guide/keychain-access/create-self-signed-certificates-kyca8916/mac)
