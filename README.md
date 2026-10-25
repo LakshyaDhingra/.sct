@@ -15,7 +15,7 @@ It uses Electron, React, and TypeScript. Each Mac keeps its own vault and privat
 | Agent Access: CLI, MCP server, skills, and Claude Code check | Done |
 | Relay connection, encrypted cache, pairing, and sharing UI | Done |
 | Relay delivery | Done |
-| Relay expiry and two-device check | Open: [#19](https://github.com/omavashia2005/.sct/issues/19), [#20](https://github.com/omavashia2005/.sct/issues/20) |
+| Relay expiry and two-device security check | Done |
 | Remote agent tasks through the relay | Open: [#33](https://github.com/omavashia2005/.sct/issues/33) |
 | Mock Wallet cards through AirDrop | Built. The iPhone test is open: [#40](https://github.com/omavashia2005/.sct/issues/40) |
 | Post-MVP | Open: [#22](https://github.com/omavashia2005/.sct/issues/22), [#23](https://github.com/omavashia2005/.sct/issues/23) |
@@ -64,7 +64,8 @@ await import('./server.js')
 
 **Share with another Mac.** Open **Sharing** on both Macs. Verify the other Mac one time. Then select **Send to…**.
 The recipient chooses the local project that receives the secrets. See [sharing](docs/sharing.md).
-To send through the relay, pair the Macs on the **Relay** tab. Then select **Queue encrypted transfer**. See [relay setup](docs/relay.md).
+To send through the relay, pair the Macs on the **Relay** tab. Then select **Queue encrypted transfer**.
+See [relay setup](docs/relay.md) and the [two-device security check](docs/secure-sharing-check.md).
 
 **Let an agent use secrets.** `sct agent` and `sct mcp` expose nine operations. Each request opens a local approval window.
 Results contain metadata only. See [Agent Access](docs/agent-access.md) and the [Claude Code demo project](examples/claude-code/README.md).
