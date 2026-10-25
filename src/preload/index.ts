@@ -55,7 +55,7 @@ const api: SctAPI = {
   requestRelayPair: (identity: string) => invoke<void>('relay:request-pair', identity),
   confirmRelayPair: (input: ConfirmRelayPairInput) => invoke<void>('relay:confirm-pair', input),
   removeRelayPair: (pairId: string) => invoke<void>('relay:remove-pair', pairId),
-  queueRelayTransfer: (input: RelayTransferInput) => invoke<void>('relay:queue-transfer', input),
+  queueRelayTransfer: (input: RelayTransferInput) => invoke<string>('relay:queue-transfer', input),
   acceptRelayTransfer: (input: RelayAcceptInput) => invoke<SecretMetadata[]>('relay:accept-transfer', input)
 }
 

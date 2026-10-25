@@ -179,7 +179,8 @@ export class Relay {
     }
   }
 
-  queueTransfer(value: unknown): Promise<void> {
+  // Returns the message ID, so the window can follow the delivery state of this transfer.
+  queueTransfer(value: unknown): Promise<string> {
     return this.serialize(async () => {
       const input = requireTransferInput(value)
       const identity = this.cache.identity
@@ -207,6 +208,7 @@ export class Relay {
       this.outbox = transfers
       this.changed()
       if (this.connection && this.status === 'connected') await this.processPending(this.connection)
+      return transfer.id
     })
   }
 

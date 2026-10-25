@@ -1,5 +1,6 @@
 /* Hallmark: app screen; theme: Terminal by request; signature: relay delivery queue; finish-review: fix, 1 resolved; v2.0.0. */
 /* Review: preserve the app shell. Make live and cached delivery state distinct without another hue. */
+/* Waive: the send handoff uses smooth eased 3D motion by request, not stepped motion. Reduced motion shows its last frame. */
 @font-face {
   font-family: "Martian Mono";
   font-style: normal;
@@ -22,6 +23,7 @@
   --color-accent-ink: oklch(14% 0.02 150);
   --color-focus: var(--color-accent);
   --color-accent-wash: oklch(23% 0.06 145);
+  --color-scrim: oklch(12.5% 0.012 150 / 0.86);
   --font-display: "Martian Mono", ui-monospace, monospace;
   --font-body: var(--font-display);
   --display-weight: 500;
@@ -150,17 +152,7 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .sharing-names { list-style: none; padding: 0; margin: 20px 0 0; border-top: 1px solid var(--color-rule); }
 .sharing-names li { padding-block: 8px; border-bottom: 1px solid var(--color-rule); overflow-wrap: anywhere; font-size: 15px; }
 .sharing-destination { margin-top: 12px; }
-.sharing-motion { margin-top: 24px; border-top: 1px solid var(--color-rule); }
-.sharing-motion .sharing-names { margin-top: 0; border-top: 0; }
 .sharing-scramble { color: var(--color-accent); }
-.sharing-transit { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; margin-top: 20px; color: var(--color-ink-2); font-size: 12px; }
-.sharing-transit > span:not(.sharing-transit-track) { overflow-wrap: anywhere; }
-.sharing-transit-track { height: 8px; background: repeating-linear-gradient(90deg, var(--color-rule-2) 0 4px, transparent 4px 8px) center / 100% 1px no-repeat; }
-/* The lane is one packet narrower than the track, so a 100% move ends the packet at the far edge. */
-.sharing-transit-lane { display: block; width: calc(100% - 8px); height: 100%; animation: sharing-transit 1.4s steps(12, jump-none) infinite; }
-.sharing-transit-lane > span { display: block; width: 8px; height: 8px; background: var(--color-accent); }
-.sharing-transit[data-arrived="true"] .sharing-transit-lane { animation-iteration-count: 1; animation-fill-mode: forwards; }
-@keyframes sharing-transit { from { transform: translateX(0); } to { transform: translateX(100%); } }
 .sharing-waiting { margin: 0 0 20px; font-size: 15px; }
 @media (max-width: 700px) {
   .header-start { flex-wrap: wrap; min-width: 0; }
@@ -168,10 +160,6 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
   .header-start nav a { min-height: 44px; padding-inline: 12px; }
   .local-label { display: none; }
   .page-heading .row-actions, .form-actions { flex-wrap: wrap; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .sharing-transit-lane { animation: none; }
-  .sharing-transit[data-arrived="true"] .sharing-transit-lane { transform: translateX(100%); }
 }
 
 .sharing-setup { margin: 24px 0 0; padding-left: 24px; }
@@ -253,3 +241,66 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 }
 
 .card-notice { margin: 24px 0 0; padding: 12px; border: 1px solid var(--color-accent); color: var(--color-accent); font-size: 15px; }
+
+/* The card moves with transform only. --x runs from 0 (sender slot) to 1 (recipient slot) across the stage width. */
+.handoff-dialog { width: min(760px, calc(100vw - 32px)); max-width: none; border: 1px solid var(--color-rule-2); border-radius: 0; background: var(--color-paper-2); color: var(--color-ink); padding: 28px; }
+.handoff-dialog:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; }
+.handoff-dialog::backdrop { background: var(--color-scrim); }
+.handoff-dialog { overflow: hidden; }
+.handoff-dialog h2 { margin: 0 0 8px; }
+.handoff-caption { min-height: 1lh; margin: 0; color: var(--color-ink-2); font-size: 15px; }
+/* --inset keeps the laptop bezels and decks inside the dialog. The object travels between the two screens. */
+.handoff { --card-w: 176px; --card-h: 111px; --inset: 28px; --top: 64px; position: relative; container-type: inline-size; height: 276px; margin-top: 20px; perspective: 900px; color: var(--color-ink-2); font-size: 12px; }
+.handoff-screen { position: absolute; top: var(--top); width: var(--card-w); height: var(--card-h); border: 1px solid var(--color-rule-2); background: var(--color-paper); }
+.handoff-screen-from { left: var(--inset); }
+.handoff-screen-to { right: var(--inset); opacity: 0.5; }
+.handoff-mac.handoff-screen-to { border-color: var(--color-accent); }
+/* A laptop: the screen, a bezel around it, and a keyboard deck with a hinge notch below it. */
+.handoff-mac::before { content: ""; position: absolute; inset: -9px; z-index: -1; border: 1px solid var(--color-rule-2); background: var(--color-paper-2); }
+.handoff-mac::after { content: ""; position: absolute; top: calc(100% + 9px); left: -24px; right: -24px; height: 10px; border: 1px solid var(--color-rule-2); background: linear-gradient(var(--color-rule-2), var(--color-rule-2)) center top / 44px 3px no-repeat, var(--color-paper-3); }
+/* A phone: a tall screen in a frame with a speaker slot. The object never lands on it, because AirDrop gives no delivery report. */
+.handoff-phone { top: calc(var(--top) + var(--card-h) / 2 - 64px); right: calc(var(--inset) + var(--card-w) / 2 - 34px); width: 68px; height: 128px; border: 6px solid var(--color-paper-3); outline: 1px solid var(--color-rule-2); }
+.handoff-phone::before { content: ""; position: absolute; top: 4px; left: 50%; width: 18px; height: 3px; transform: translateX(-50%); background: var(--color-rule-2); }
+.handoff-rings { position: absolute; z-index: -2; top: calc(var(--top) + var(--card-h) / 2 - 184px); left: calc(50% - 184px); width: 368px; height: 368px; overflow: visible; pointer-events: none; }
+.handoff-ring { fill: none; stroke: var(--color-accent); stroke-width: 1px; vector-effect: non-scaling-stroke; opacity: 0.2; }
+.handoff-hub { position: absolute; top: calc(var(--top) + var(--card-h) / 2 - 32px); left: calc(50% - 32px); display: grid; place-items: center; width: 64px; height: 64px; border: 1px solid var(--color-rule-2); background: var(--color-paper); }
+.handoff-hub svg { width: 38px; height: 35px; fill: var(--color-accent); }
+.handoff-label { position: absolute; top: calc(var(--top) + var(--card-h) + 32px); display: flex; flex-direction: column; gap: 2px; max-width: var(--card-w); overflow-wrap: anywhere; }
+.handoff-label-from { left: var(--inset); }
+.handoff-label-gate { left: 50%; transform: translateX(-50%); color: var(--color-muted); }
+.handoff-label-to { right: var(--inset); text-align: right; }
+.handoff-note { color: var(--color-accent); opacity: 0; }
+.handoff-object { --x: 0; --y: 0; --rx: 14; --ry: 0; --r: 0; --s: 1; position: absolute; top: var(--top); left: var(--inset); width: var(--card-w); height: var(--card-h); opacity: 0; transform-style: preserve-3d; transform: translate3d(calc(var(--x) * (100cqw - var(--card-w) - 2 * var(--inset))), calc(var(--y) * 1px), 0) rotateX(calc(var(--rx) * 1deg)) rotateY(calc(var(--ry) * 1deg)) rotate(calc(var(--r) * 1deg)) scale(var(--s)); will-change: transform; }
+.handoff-object-key { padding: 8px 12px; transform-style: preserve-3d; }
+.handoff-key { position: relative; display: block; height: 52px; transform-style: preserve-3d; }
+.handoff-key-layer { position: absolute; inset: 0; width: 100%; height: 100%; fill: var(--color-rule-2); }
+.handoff-key-layer:first-child, .handoff-key-layer:last-child { fill: var(--color-paper-3); stroke: var(--color-accent); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.handoff-key-layer:nth-child(2) { transform: translateZ(-1px); }
+.handoff-key-layer:nth-child(3) { transform: translateZ(-2px); }
+.handoff-key-layer:nth-child(4) { transform: translateZ(-3px); }
+.handoff-key-layer:nth-child(5) { transform: translateZ(-4px); }
+.handoff-key-text { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; backface-visibility: hidden; }
+.handoff-key-text > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.handoff-face { position: absolute; inset: 0; border: 1px solid var(--color-accent); background: var(--color-paper-3); backface-visibility: hidden; overflow: hidden; }
+.handoff-front { display: grid; grid-template-rows: auto auto 1fr auto; gap: 6px; padding: 10px 12px; }
+.handoff-front > span, .handoff-bottom > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.handoff-kind { color: var(--color-accent); font-size: 9px; }
+.handoff-chip { width: 26px; height: 19px; border: 1px solid var(--color-ink-2); background: linear-gradient(var(--color-ink-2), var(--color-ink-2)) center / 100% 1px no-repeat, linear-gradient(var(--color-ink-2), var(--color-ink-2)) center / 1px 100% no-repeat; }
+.handoff-number { align-self: center; color: var(--color-ink-2); font-size: 11px; font-stretch: var(--stretch-display); }
+.handoff-bottom { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }
+.handoff-title { color: var(--color-ink); font-size: 12px; font-weight: 500; }
+.handoff-detail { flex-shrink: 1; color: var(--color-ink-2); font-size: 9px; }
+.handoff-detail .sharing-scramble { color: inherit; }
+.handoff-device { grid-template-rows: auto auto 1fr; gap: 4px; border-left-width: 4px; }
+/* Martian Mono is monospace, so a 19ch width wraps the fingerprint after every four groups of four. */
+.handoff-front > .handoff-fingerprint { align-self: end; width: 19ch; white-space: normal; color: var(--color-ink-2); font-size: 9px; line-height: 1.25; word-spacing: 0; }
+.handoff-device-back { justify-content: center; border-left-width: 4px; padding: 12px; }
+.handoff-device-back .handoff-back-text { margin: 0; padding: 0; white-space: normal; }
+.handoff-back { display: flex; flex-direction: column; gap: 8px; transform: rotateY(180deg); padding-bottom: 10px; }
+.handoff-stripe { height: 22px; margin-top: 12px; background: var(--color-rule-2); }
+.handoff-signature { height: 14px; margin-inline: 12px; width: 60%; background: repeating-linear-gradient(90deg, var(--color-rule) 0 4px, var(--color-paper) 4px 8px); }
+.handoff-back-text { margin-top: auto; padding-inline: 12px; color: var(--color-ink-2); font-size: 9px; }
+@media (max-width: 700px) {
+  .handoff { --card-w: 128px; --card-h: 81px; --inset: 26px; }
+  .handoff-dialog { padding: 20px; }
+}

@@ -87,6 +87,7 @@ export interface RelayAPI {
   requestRelayPair: (identity: string) => Promise<void>
   confirmRelayPair: (input: ConfirmRelayPairInput) => Promise<void>
   removeRelayPair: (pairId: string) => Promise<void>
-  queueRelayTransfer: (input: RelayTransferInput) => Promise<void>
+  // Returns the message ID of the queued transfer.
+  queueRelayTransfer: (input: RelayTransferInput) => Promise<string>
   acceptRelayTransfer: (input: RelayAcceptInput) => Promise<SecretMetadata[]>
 }

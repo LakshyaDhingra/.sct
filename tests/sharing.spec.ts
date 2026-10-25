@@ -72,7 +72,7 @@ test('shares selected secrets into the recipient project without exposing values
       await expect(page.getByText('Verify a device before you can send secrets.', { exact: true })).toBeVisible()
       await tabs.getByRole('link', { name: 'Verify devices', exact: true }).click()
       await page.getByRole('button', { name: 'Send my card to…' }).click()
-      await expect(page.getByRole('status')).toContainText('public device card')
+      await expect(page.getByRole('status').first()).toContainText('public device card')
     }
     await source.screenshot({ path: test.info().outputPath('verify-devices.png'), fullPage: true })
 
@@ -108,7 +108,7 @@ test('shares selected secrets into the recipient project without exposing values
     await expect(source.getByLabel('API_TOKEN', { exact: true })).toBeChecked()
     await expect(source.getByLabel('SECOND_TOKEN', { exact: true })).not.toBeChecked()
     await source.getByRole('button', { name: 'Send to…' }).click()
-    await expect(source.getByRole('status')).toContainText('the encrypted secrets are on their way')
+    await expect(source.getByRole('status').first()).toContainText('the encrypted secrets are on their way')
     const packages = (await readdir(join(sender.data, 'sharing', 'outbox'))).filter((name) => name.endsWith('.sct-transfer'))
     expect(packages).toHaveLength(1)
     const transferFile = packages[0]
@@ -130,7 +130,7 @@ test('shares selected secrets into the recipient project without exposing values
     await expect(destination.getByText(join(root, 'recipient', '.sct', 'api', 'secrets.sct'), { exact: true })).toBeVisible()
     await destination.screenshot({ path: test.info().outputPath('receive-secrets.png') })
     await destination.getByRole('button', { name: 'Import secrets' }).click()
-    await expect(destination.getByRole('status')).toContainText('Imported 1 secret into api')
+    await expect(destination.getByRole('status').first()).toContainText('Imported 1 secret into api')
     await expect(destination.getByRole('heading', { name: /^Received from / })).toBeVisible()
     await expect(destination.locator('.sharing-scramble')).toHaveText('API_TOKEN')
 

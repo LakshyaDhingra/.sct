@@ -2,7 +2,7 @@
 
 .sct is a macOS app that keeps project secrets out of project folders.
 It stores secrets in an encrypted local vault and injects them into commands at runtime.
-It also shares secrets between Macs and lets coding agents use them after local approval.
+It also shares secrets between Macs through AirDrop or a relay, and lets coding agents use them after local approval.
 It uses Electron, React, and TypeScript. Each Mac keeps its own vault and private keys.
 
 ## Status
@@ -17,7 +17,8 @@ It uses Electron, React, and TypeScript. Each Mac keeps its own vault and privat
 | Relay delivery | Done |
 | Relay expiry and two-device check | Open: [#19](https://github.com/omavashia2005/.sct/issues/19), [#20](https://github.com/omavashia2005/.sct/issues/20) |
 | Remote agent tasks through the relay | Open: [#33](https://github.com/omavashia2005/.sct/issues/33) |
-| Post-MVP | Open: [#22](https://github.com/omavashia2005/.sct/issues/22), [#23](https://github.com/omavashia2005/.sct/issues/23), [#40](https://github.com/omavashia2005/.sct/issues/40) |
+| Mock Wallet cards through AirDrop | Built. The iPhone test is open: [#40](https://github.com/omavashia2005/.sct/issues/40) |
+| Post-MVP | Open: [#22](https://github.com/omavashia2005/.sct/issues/22), [#23](https://github.com/omavashia2005/.sct/issues/23) |
 
 See the [implementation order](docs/architecture.md#implementation-order).
 
@@ -63,9 +64,13 @@ await import('./server.js')
 
 **Share with another Mac.** Open **Sharing** on both Macs. Verify the other Mac one time. Then select **Send to…**.
 The recipient chooses the local project that receives the secrets. See [sharing](docs/sharing.md).
+To send through the relay, pair the Macs on the **Relay** tab. Then select **Queue encrypted transfer**. See [relay setup](docs/relay.md).
 
 **Let an agent use secrets.** `sct agent` and `sct mcp` expose nine operations. Each request opens a local approval window.
 Results contain metadata only. See [Agent Access](docs/agent-access.md) and the [Claude Code demo project](examples/claude-code/README.md).
+
+**Send a mock Wallet card.** Open **Cards**. Type fake details. Select **Create and send to…**. Choose an iPhone in the picker.
+walletmcppass.com signs the pass. See [mock Wallet cards](docs/wallet-cards.md).
 
 ## Security model
 
@@ -82,7 +87,7 @@ See [architecture](docs/architecture.md) and the [glossary](docs/glossary.md).
 
 | Path | Contents |
 |---|---|
-| `src/main/` | Electron main process: vault, projects, runtime injection, sharing, relay, and Agent Access |
+| `src/main/` | Electron main process: vault, projects, runtime injection, sharing, relay, Agent Access, and Wallet cards |
 | `src/preload/` | The operations that the renderer can call |
 | `src/renderer/` | React screens and styles |
 | `src/shared/` | Shared TypeScript contracts |
@@ -107,4 +112,5 @@ See [architecture](docs/architecture.md) and the [glossary](docs/glossary.md).
 | `bun run build:sdk` | Build the SDK and check its declarations |
 | `bun run package:mac` | Build and sign the macOS app, then check its signature |
 
-GitHub Actions runs these checks on macOS. Contributors and agents follow [AGENTS.md](AGENTS.md).
+GitHub Actions runs the lint, both type checks, the unit tests, `bun run build`, the UI tests, and React Doctor on macOS.
+`bun run build` includes `bun run build:sdk`. CI does not run `bun run package:mac`. Contributors and agents follow [AGENTS.md](AGENTS.md).

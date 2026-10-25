@@ -114,6 +114,8 @@ The desktop app connects to the relay when it starts. A command-line process doe
   The app encrypts the file with AES-256-GCM. The key is in `.sct-relay` under `cache/<server>/<database>`.
   Each relay server has its own files, so a test relay cannot replace the files of the live relay.
   Received ciphertext and delivery status stay available after a restart without the relay.
+- The app saves queued transfers in `relay/outbox-<server hash>.sct` and imported transfers in `relay/received-<server hash>.sct`.
+  These files use the same encryption. Their keys are in `.sct-relay` under `outbox/<server>/<database>` and `received/<server>/<database>`.
 - Local vault operations do not depend on the relay.
 
 The renderer reads the relay state with `getRelayState` and `onRelayChanged`.
@@ -133,14 +135,17 @@ The `SCT_RELAY` environment variable selects the relay:
 Two devices must pair before they share secrets. Pairing uses the same device keys as AirDrop.
 A device verified through AirDrop still needs a relay pairing, and the reverse is also true.
 
-1. Device B shows its relay ID: 64 hexadecimal characters. The user sends it to device A by any channel.
-2. Device A enters the relay ID. The app calls `requestPair`.
+Do these steps on the **Relay** tab of **Sharing**:
+
+1. Device B shows its relay ID under **This device’s relay ID**: 64 hexadecimal characters. The user sends it to device A by any channel.
+2. Device A enters the relay ID and selects **Request pairing**. The app calls `requestPair`.
 3. Both apps show the pending pair and the same pairing code.
    The code comes from both relay identities and both device public keys.
 4. The users compare the codes, for example in person or on a call.
-5. If the codes are the same, each user accepts the pair. Each app saves the public keys of the other device.
+5. If the codes are the same, each user selects **I compared this code on both Macs**, then **Confirm relay device**.
+   Each app saves the public keys of the other device.
    The app of device B also calls `confirmPair`. On the relay, only the device that did not send the request can accept the pair.
-6. If the codes are different, a user deletes the pair. The app calls `removePair` and saves nothing.
+6. If the codes are different, a user selects **Remove**. The app calls `removePair` and deletes its saved keys of that device.
 
 The app saves the accepted keys in `relay/peers-<server hash>.sct`.
 The app encrypts this file with AES-256-GCM. The key is in `.sct-relay` under `peers/<server>/<database>`.
@@ -156,25 +161,41 @@ Each peer in `getRelayState` has a trust state:
 | `invalid` | The keys on the relay are not X25519 and Ed25519 public keys. |
 
 Before a device sends a secret, the relay pair must be `Verified` and the peer trust state must be `verified`.
-Issue #17 applies this rule to sending.
+The recipient applies the same rule to the sender before it opens a transfer.
 
-The preload bridge exposes `requestRelayPair`, `confirmRelayPair`, and `removeRelayPair`. No screen uses them yet. Issue #14 adds the relay sharing UI.
+The **Relay** tab uses the preload operations `requestRelayPair`, `confirmRelayPair`, and `removeRelayPair`.
 `confirmRelayPair` takes the code on the screen. It fails if the current code is different, for example after a key change.
 
 ## Relay delivery
 
-The sender selects a verified relay device, secrets, and deadlines on the **Relay** tab.
+On the **Relay** tab, the sender selects a source project, a verified relay recipient, and secrets.
+The sender sets **Deliver before** and, as an option, **Access expires**.
+The **Allow command injection only** option is on by default. Then the sender selects **Queue encrypted transfer**.
 The main process reads the selected values and creates one signed encrypted transfer.
 It saves the ciphertext in an encrypted local outbox before publication.
+When the app has a relay connection, it publishes the transfer immediately. Otherwise, it publishes after the next connection.
 
 The relay checks the authenticated sender, verified pair, stable message ID, and delivery deadline.
+The delivery deadline must be in the next 7 days.
 A retry with the same ID must contain the same ciphertext, recipient, deadline, and wrapped key.
 The relay rejects the ID when any of those fields differ.
+After a failed publication or acknowledgment, the app tries again after 1 s, then up to 30 s between attempts.
+The app does not publish a transfer after its delivery deadline.
+
+**Delivery activity** shows each sent transfer with one of these states:
+
+| State | Meaning |
+|---|---|
+| `queued` | The transfer is in the local outbox. The relay does not have it yet. |
+| `sent` | The relay has the transfer. The recipient did not acknowledge it yet. |
+| `received` | The recipient acknowledged the transfer, and the sender verified the receipt. |
+| `failed` | The publication or the receipt check failed. The row shows the error. |
+| `expired` | The delivery deadline passed before the relay accepted the transfer. |
 
 The recipient main process verifies and decrypts a pending transfer.
 The renderer receives the project name, secret names, deadlines, and grant restrictions.
 It never receives secret values or private keys.
-The recipient selects a local destination project and selects **Import and send receipt**.
+Under **Received transfers**, the recipient selects a local destination project and selects **Import and send receipt**.
 
 .sct saves the imported values under local vault protection.
 It saves the access deadline and the injection-only restriction with each imported secret.
@@ -185,6 +206,8 @@ After the vault import, .sct saves an encrypted signed receipt before it acknowl
 The relay keeps the receipt for an offline sender.
 The sender verifies the receipt before it reports durable delivery.
 Retries reuse the original IDs and cannot import the same transfer two times.
+
+A modal shows each relay send and each new arrival. See [send and receive animations](sharing.md#send-and-receive-animations).
 
 Issue #19 adds scheduled expiry cleanup and expiry notifications.
 Issue #20 records the complete two-device security check.

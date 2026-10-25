@@ -2,6 +2,8 @@
 
 .sct sends encrypted copies of secrets to a verified Mac through AirDrop.
 The flow needs no relay, no agent, and no network connection other than AirDrop.
+The **Sharing** screen has four tabs: **Verify devices**, **Send secrets**, **Receive secrets**, and **Relay**.
+This page describes the first three tabs. See [relay setup](relay.md) for the **Relay** tab.
 
 Build the signed app with `bun run package:mac`. Then macOS opens `.sct-transfer` files in .sct.
 The development window registers no file type.
@@ -18,7 +20,8 @@ Do these steps on both Macs:
 5. Select **Import .sct-device file…**. The file picker opens in Downloads.
 6. Choose their card.
 7. Compare the full pairing code on both Macs. Use a trusted conversation, for example in person or on a call.
-8. If both codes are the same, select **Confirm recipient**. If the codes are different, select **Cancel verification**.
+8. If both codes are the same, select **I compared this code on both Macs**. Then select **Confirm recipient**.
+9. If the codes are different, select **Cancel verification**.
 
 If the keys of one Mac change, verify that device again.
 The **Send secrets** tab stays unavailable until you verify one device.
@@ -26,10 +29,11 @@ The **Send secrets** tab stays unavailable until you verify one device.
 ## Send
 
 1. Open the **Send secrets** tab. You can also select **Share secrets** on a project page. Then .sct keeps that project selected.
-2. Choose a verified recipient.
-3. Choose the secrets.
-4. Select **Send to…**.
-5. In the picker, choose the same Mac.
+2. Choose the source project.
+3. Choose a verified recipient.
+4. Choose the secrets.
+5. Select **Send to…**.
+6. In the picker, choose the same Mac.
 
 .sct encrypts the package for that device before it writes the transfer file.
 The helper `native/airdrop.swift` opens only the AirDrop picker. It does not open the full macOS share menu.
@@ -55,13 +59,31 @@ If a secret name already exists in the destination, the import fails before any 
   This protection also applies after a restart or after an interrupted import.
   An interrupted import stays bound to its first destination project.
 - An import makes a permanent local copy. Package expiry does not revoke an imported secret.
+- .sct does not send a secret that arrived through the relay with an injection-only grant or an expired grant.
 - .sct keeps outbound ciphertext in its app data until the app stops.
   After a crash, .sct deletes expired packages when it starts again.
 - An import or **Dismiss transfer** deletes the pending copy in the app data.
   The AirDrop file stays in Downloads. You can delete it after the import.
 - Secret values and private keys never go into transfer files, logs, or renderer responses.
   Values exist in main-process memory during encryption and import. JavaScript cannot clear strings from memory.
-- The Sharing screen animates encryption, transport, and decryption. Reduced-motion settings stop the animations.
-  The animated glyphs are decoration. They do not show ciphertext.
 
-Relay sharing is separate work. See [relay setup](relay.md) and the [implementation order](architecture.md#implementation-order).
+## Send and receive animations
+
+A modal shows each send and each arrival. The **Cards** screen uses the same modal. See [mock Wallet cards](wallet-cards.md).
+
+- A drawing of the sender's Mac is on the left. A drawing of the recipient is on the right: a Mac, or an iPhone for a Wallet card.
+- An object moves between the two drawings. A device card shows the device name and fingerprint.
+  Secrets move as a key. A Wallet card moves as a credit card.
+- An AirDrop send shows concentric rings in the middle. macOS reports no delivery.
+  Thus the object goes into the rings and never lands on the recipient. The caption tells you that macOS does not confirm delivery.
+- A relay send shows a SpacetimeDB hub in the middle. The key waits in the hub while the transfer is in the queue.
+  The key lands on the recipient only when the relay reports `received`. You can close the modal while the key waits.
+- A relay arrival shows the modal only while the **Relay** tab is open.
+- After an import, the key lands on the project that you chose. An AirDrop import starts at the sender.
+  A relay import goes from the sender through the hub.
+- A relay send plays a quiet swoosh. The app makes the sound at run time with the Web Audio API.
+- After the object goes into the rings or lands, the modal closes after 1.5 s.
+  You cannot close it while the app makes the file or the transfer, or while the AirDrop picker is open.
+- Reduced-motion settings show the final frame of each stage with no movement.
+- Secret names change to random glyphs during encryption and back to the names after import.
+  The glyphs are decoration. They do not show ciphertext. Screen readers get the real names.
