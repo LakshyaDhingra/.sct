@@ -50,6 +50,22 @@ test('shares selected secrets into the recipient project without exposing values
     await destination.getByRole('link', { name: 'Sharing', exact: true }).click()
     for (const page of [source, destination]) {
       const tabs = page.getByRole('navigation', { name: 'Sharing', exact: true })
+      await tabs.getByRole('link', { name: 'Relay', exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Relay sharing', exact: true })).toBeVisible()
+      await expect(page.getByText('The relay is off. Set SCT_RELAY to connect this app.')).toBeVisible()
+      await expect(page.getByLabel('Other device’s relay ID')).toBeDisabled()
+      await expect(page.getByRole('heading', { name: 'Delivery activity', exact: true })).toBeVisible()
+      await expect(page.getByText('No relay delivery activity is saved on this Mac.')).toBeVisible()
+      if (page === source) {
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.screenshot({ path: test.info().outputPath('relay-desktop.png'), fullPage: true })
+        await page.setViewportSize({ width: 375, height: 812 })
+        await expect(tabs.getByRole('link', { name: 'Relay', exact: true })).toBeInViewport()
+        await expect(page.getByRole('heading', { name: 'Relay sharing', exact: true })).toBeInViewport()
+        await page.screenshot({ path: test.info().outputPath('relay-phone.png'), fullPage: true })
+        await page.setViewportSize({ width: 1000, height: 720 })
+      }
+      await tabs.getByRole('link', { name: 'Verify devices', exact: true }).click()
       await expect(tabs.getByRole('link', { name: 'Verify devices', exact: true })).toHaveAttribute('aria-current', 'page')
       await expect(tabs.getByText('Send secrets', { exact: true })).toHaveAttribute('aria-disabled', 'true')
       await expect(page.getByRole('heading', { name: 'Send secrets', exact: true })).toHaveCount(0)

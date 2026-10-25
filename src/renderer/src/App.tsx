@@ -93,7 +93,9 @@ function parseRoute(hash: string): Route {
   if (view === 'cards') return { view: 'cards' }
   if (view === 'agent') return { view: 'agent' }
   if (view === 'sharing') {
-    if (id === 'devices' || id === 'secrets' || id === 'receive') return { view: 'sharing', tab: id, projectId: projectId ? decodeURIComponent(projectId) : undefined }
+    if (id === 'devices' || id === 'secrets' || id === 'receive' || id === 'relay') {
+      return { view: 'sharing', tab: id, projectId: projectId ? decodeURIComponent(projectId) : undefined }
+    }
     return { view: 'sharing', projectId: id ? decodeURIComponent(id) : undefined }
   }
   return { view: 'projects' }

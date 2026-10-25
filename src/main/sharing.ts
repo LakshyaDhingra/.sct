@@ -5,7 +5,10 @@ import { join } from 'node:path'
 import { createIdentity, decodeIdentity, decryptTransfer, describeDevice, encodeIdentity, encryptTransfer,
   pairingCode, readDeviceCard, readEnvelope, readObject, transferLimit } from './transfer'
 import type { DeviceCard, DeviceIdentity, TransferEnvelope } from './transfer'
+import { sealTransfer } from './envelope'
+import type { RelayPeerKeys, SealedTransfer } from './envelope'
 import type { Vault } from './vault'
+import type { RelayTransferInput } from '../shared/relay'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../shared/sharing'
 import type { SecretMetadata } from '../shared/secrets'
 
@@ -43,6 +46,19 @@ export class Sharing {
   // The relay registers the same public keys as the AirDrop device card.
   async deviceCard(): Promise<DeviceCard> {
     return (await this.getIdentity()).card
+  }
+
+  prepareRelayTransfer(identity: string, recipient: RelayPeerKeys, input: RelayTransferInput): Promise<SealedTransfer> {
+    return this.vault.withSelectedSecrets(input.projectId, input.secretIds, async (project, secrets) => sealTransfer(
+      { identity, keys: await this.getIdentity() },
+      [recipient],
+      {
+        projectName: project.name,
+        secrets: secrets.map(({ name, value }) => ({ name, value: value.toString('utf8') })),
+        grant: { accessExpiresAt: input.accessExpiresAt, injectionOnly: input.injectionOnly }
+      },
+      input.deliverBy
+    ))
   }
 
   deviceCardFile(): Promise<string> {
