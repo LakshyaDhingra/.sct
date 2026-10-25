@@ -1,11 +1,12 @@
 import { schema, table, t, SenderError, type InferSchema, type ReducerCtx } from 'spacetimedb/server'
-import type { Identity } from 'spacetimedb'
+import type { Identity, Timestamp } from 'spacetimedb'
 
 // All tables are private. Clients read rows only through the views below.
 // The relay never reads payload or wrappedKey. Issue #16 defines their contents.
 
 const PairStatus = t.enum('PairStatus', { Pending: t.unit(), Verified: t.unit() })
 const DeliveryStatus = t.enum('DeliveryStatus', { Pending: t.unit(), Received: t.unit() })
+const deliveryLimitMicros = 7n * 24n * 60n * 60n * 1_000_000n
 
 const device = table(
   { name: 'device' },
@@ -40,7 +41,8 @@ const message = table(
     id: t.string().primaryKey(),
     sender: t.identity().index('btree'),
     payload: t.byteArray(),
-    createdAt: t.timestamp()
+    createdAt: t.timestamp(),
+    deliverBy: t.timestamp()
   }
 )
 
@@ -120,14 +122,22 @@ export const removePair = spacetimedb.reducer({ pairId: t.u64() }, (ctx, { pairI
 })
 
 export const publishSecret = spacetimedb.reducer(
-  { id: t.string(), payload: t.byteArray(), recipients: t.array(RecipientKey) },
-  (ctx, { id, payload, recipients }) => {
+  { id: t.string(), payload: t.byteArray(), deliverBy: t.timestamp(), recipients: t.array(RecipientKey) },
+  (ctx, { id, payload, deliverBy, recipients }) => {
     requireDevice(ctx, ctx.sender)
     if (!id) throw new SenderError('The message ID is empty.')
     if (!payload.length) throw new SenderError('The message payload is empty.')
-    if (ctx.db.message.id.find(id)) throw new SenderError('The message ID is already used.')
+    const existing = ctx.db.message.id.find(id)
+    if (existing) {
+      requireSamePublication(ctx, existing, payload, deliverBy, recipients)
+      return
+    }
+    const deliveryTime = deliverBy.microsSinceUnixEpoch - ctx.timestamp.microsSinceUnixEpoch
+    if (deliveryTime <= 0n || deliveryTime > deliveryLimitMicros) {
+      throw new SenderError('Set a delivery deadline within the next 7 days.')
+    }
     requireRecipients(ctx, recipients)
-    ctx.db.message.insert({ id, sender: ctx.sender, payload, createdAt: ctx.timestamp })
+    ctx.db.message.insert({ id, sender: ctx.sender, payload, createdAt: ctx.timestamp, deliverBy })
     for (const { recipient, wrappedKey } of recipients) {
       ctx.db.delivery.insert({ id: 0n, messageId: id, recipient, wrappedKey, status: { tag: 'Pending' }, receivedAt: undefined })
     }
@@ -152,14 +162,16 @@ export const myInbox = spacetimedb.view(
     sender: t.identity(),
     payload: t.byteArray(),
     wrappedKey: t.byteArray(),
-    createdAt: t.timestamp()
+    createdAt: t.timestamp(),
+    deliverBy: t.timestamp()
   })),
   (ctx) => [...ctx.db.delivery.byRecipientMessage.filter(ctx.sender)]
     .filter((row) => row.status.tag === 'Pending')
     .flatMap((row) => {
       const sent = ctx.db.message.id.find(row.messageId)
       return sent
-        ? [{ messageId: sent.id, sender: sent.sender, payload: sent.payload, wrappedKey: row.wrappedKey, createdAt: sent.createdAt }]
+        ? [{ messageId: sent.id, sender: sent.sender, payload: sent.payload, wrappedKey: row.wrappedKey,
+            createdAt: sent.createdAt, deliverBy: sent.deliverBy }]
         : []
     })
 )
@@ -170,6 +182,7 @@ export const mySent = spacetimedb.view(
     messageId: t.string(),
     recipient: t.identity(),
     status: DeliveryStatus,
+    deliverBy: t.timestamp(),
     receivedAt: t.option(t.timestamp()),
     receipt: t.option(t.byteArray())
   })),
@@ -178,6 +191,7 @@ export const mySent = spacetimedb.view(
       messageId: sent.id,
       recipient: row.recipient,
       status: row.status,
+      deliverBy: sent.deliverBy,
       receivedAt: row.receivedAt,
       receipt: ctx.db.receipt.deliveryId.find(row.id)?.receipt
     }))
@@ -234,6 +248,18 @@ function requireRecipients(ctx: Ctx, recipients: { recipient: Identity; wrappedK
     if (findPair(ctx, ctx.sender, recipient)?.status.tag !== 'Verified') {
       throw new SenderError('A recipient has no verified pair with this device.')
     }
+  }
+}
+
+function requireSamePublication(ctx: Ctx, existing: { id: string; sender: Identity; payload: Uint8Array; deliverBy: Timestamp },
+  payload: Uint8Array, deliverBy: Timestamp,
+  recipients: { recipient: Identity; wrappedKey: Uint8Array }[]) {
+  const saved = [...ctx.db.delivery.byMessageRecipient.filter(existing.id)]
+  const sameRecipients = saved.length === recipients.length && recipients.every((recipient) => saved.some((delivery) =>
+    delivery.recipient.equals(recipient.recipient) && sameBytes(delivery.wrappedKey, recipient.wrappedKey)))
+  if (!existing.sender.equals(ctx.sender) || !sameBytes(existing.payload, payload) ||
+    existing.deliverBy.microsSinceUnixEpoch !== deliverBy.microsSinceUnixEpoch || !sameRecipients) {
+    throw new SenderError('The message ID is already used by a different publication.')
   }
 }
 

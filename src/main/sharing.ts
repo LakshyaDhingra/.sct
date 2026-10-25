@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { createIdentity, decodeIdentity, decryptTransfer, describeDevice, encodeIdentity, encryptTransfer,
   pairingCode, readDeviceCard, readEnvelope, readObject, transferLimit } from './transfer'
 import type { DeviceCard, DeviceIdentity, TransferEnvelope } from './transfer'
-import { sealTransfer } from './envelope'
+import { openReceipt, openTransfer as openRelayEnvelope, sealReceipt, sealTransfer } from './envelope'
 import type { RelayPeerKeys, SealedTransfer } from './envelope'
 import type { Vault } from './vault'
 import type { RelayTransferInput } from '../shared/relay'
@@ -17,6 +17,22 @@ interface Receipt {
   digest: string
   projectId: string
   complete: boolean
+}
+
+export interface RelayTransferPreview {
+  messageId: string
+  digest: string
+  projectName: string
+  secretNames: string[]
+  deliverBy: number
+  accessExpiresAt: number | null
+  injectionOnly: boolean
+}
+
+export interface RelayTransferAcceptance extends RelayTransferPreview {
+  secrets: SecretMetadata[]
+  receivedAt: number
+  receipt: Buffer
 }
 
 export class Sharing {
@@ -59,6 +75,40 @@ export class Sharing {
       },
       input.deliverBy
     ))
+  }
+
+  async previewRelayTransfer(identity: string, sender: RelayPeerKeys, payload: Buffer, wrappedKey: Buffer): Promise<RelayTransferPreview> {
+    const opened = openRelayEnvelope({ identity, keys: await this.getIdentity() }, sender, payload, wrappedKey)
+    try {
+      return relayPreview(opened)
+    } finally {
+      opened.contents.secrets.length = 0
+    }
+  }
+
+  async acceptRelayTransfer(identity: string, sender: RelayPeerKeys, payload: Buffer, wrappedKey: Buffer,
+    projectId: string, beforeWrite: (preview: RelayTransferPreview) => Promise<void>): Promise<RelayTransferAcceptance> {
+    const self = { identity, keys: await this.getIdentity() }
+    const opened = openRelayEnvelope(self, sender, payload, wrappedKey)
+    const preview = relayPreview(opened)
+    const receivedAt = Date.now()
+    try {
+      const secrets = await this.vault.importSecrets(projectId, opened.contents.secrets,
+        `relay:${opened.transfer.id}:${opened.digest}`, () => beforeWrite(preview), opened.contents.grant)
+      return {
+        ...preview,
+        secrets,
+        receivedAt,
+        receipt: sealReceipt(self, sender, opened.transfer,
+          { status: 'received', receivedAt, secretCount: secrets.length }, receivedAt)
+      }
+    } finally {
+      opened.contents.secrets.length = 0
+    }
+  }
+
+  async verifyRelayReceipt(identity: string, recipient: RelayPeerKeys, transferId: string, receipt: Buffer): Promise<void> {
+    openReceipt({ identity, keys: await this.getIdentity() }, recipient, transferId, receipt)
   }
 
   deviceCardFile(): Promise<string> {
@@ -258,6 +308,18 @@ export class Sharing {
     const next = this.pending.then(operation)
     this.pending = next.then(() => undefined, () => undefined)
     return next
+  }
+}
+
+function relayPreview(opened: ReturnType<typeof openRelayEnvelope>): RelayTransferPreview {
+  return {
+    messageId: opened.transfer.id,
+    digest: opened.digest,
+    projectName: opened.contents.projectName,
+    secretNames: opened.contents.secrets.map((secret) => secret.name),
+    deliverBy: opened.transfer.deliverBy,
+    accessExpiresAt: opened.contents.grant.accessExpiresAt,
+    injectionOnly: opened.contents.grant.injectionOnly
   }
 }
 

@@ -6,6 +6,7 @@ import { isProjectName } from './projects.ts'
 import type { ProjectStore } from './projects.ts'
 import type { Project } from '../shared/projects.ts'
 import type { SecretMetadata } from '../shared/secrets.ts'
+import type { RelayGrant } from '../shared/envelope.ts'
 import type { TransferSecret } from './transfer.ts'
 import { decodeFile, encodeFile, open, seal } from './seal.ts'
 import type { Sealed } from './seal.ts'
@@ -22,6 +23,7 @@ interface StoredSecret {
   tag: string
   value: string
   transferId?: string
+  grant?: RelayGrant
 }
 
 export class Vault {
@@ -184,6 +186,7 @@ export class Vault {
       this.root = await this.readRoot()
       const project = await this.projects.find(projectId)
       const stored = await this.readSecrets(project)
+      for (const id of selected) requireReshare(requireSecret(stored, id))
       const values: { name: string; value: Buffer }[] = []
       try {
         const reads = await Promise.allSettled(selected.map(async (id) => {
@@ -201,7 +204,7 @@ export class Vault {
 
   // One encrypted file commit prevents a failed batch from leaving half the transfer in the vault.
   importSecrets(projectId: unknown, input: readonly TransferSecret[], transferId: string,
-    beforeWrite: () => Promise<void>): Promise<SecretMetadata[]> {
+    beforeWrite: () => Promise<void>, grant?: RelayGrant): Promise<SecretMetadata[]> {
     return this.serialize(async () => {
       const project = await this.projects.find(projectId)
       const incoming = input.map((entry) => requireSecretInput({ ...entry, projectId: project.id }))
@@ -231,7 +234,7 @@ export class Vault {
           try {
             const sealed = encodeSealed(seal(key, plaintext, valueData(project, id)))
             await this.entry(project, id).setSecret(key)
-            added.push({ id, name: entry.name, transferId, ...sealed })
+            added.push({ id, name: entry.name, transferId, grant, ...sealed })
           } finally {
             key.fill(0)
             plaintext.fill(0)
@@ -300,6 +303,7 @@ export class Vault {
   }
 
   private async decryptSecret(project: Project, secret: StoredSecret): Promise<Buffer> {
+    requireActiveGrant(secret)
     const key = await this.readKey(project, secret.id)
     try {
       return open(key, {
@@ -484,7 +488,27 @@ function encodeSealed({ iv, tag, ciphertext }: Sealed): Pick<StoredSecret, 'iv' 
 function isStoredSecret(value: unknown): value is StoredSecret {
   if (typeof value !== 'object' || value === null) return false
   const secret = value as Record<string, unknown>
-  return ['id', 'name', 'iv', 'tag', 'value'].every((field) => typeof secret[field] === 'string')
+  return ['id', 'name', 'iv', 'tag', 'value'].every((field) => typeof secret[field] === 'string') &&
+    (secret.transferId === undefined || typeof secret.transferId === 'string') &&
+    (secret.grant === undefined || isRelayGrant(secret.grant))
+}
+
+function isRelayGrant(value: unknown): value is RelayGrant {
+  if (typeof value !== 'object' || value === null) return false
+  const grant = value as Record<string, unknown>
+  return (grant.accessExpiresAt === null || Number.isSafeInteger(grant.accessExpiresAt)) &&
+    typeof grant.injectionOnly === 'boolean'
+}
+
+function requireActiveGrant(secret: StoredSecret, now = Date.now()): void {
+  if (secret.grant?.accessExpiresAt !== null && secret.grant?.accessExpiresAt !== undefined && secret.grant.accessExpiresAt <= now) {
+    throw new Error(`${secret.name} has an expired access grant.`)
+  }
+}
+
+function requireReshare(secret: StoredSecret): void {
+  requireActiveGrant(secret)
+  if (secret.grant?.injectionOnly) throw new Error(`${secret.name} has an injection-only grant and cannot be shared again.`)
 }
 
 function requireSecretIds(input: unknown): string[] {
