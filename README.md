@@ -5,6 +5,7 @@ Your project needs no `.env` file.
 
 - **Vault.** .sct keeps secrets in an encrypted local vault. Each value has its own key in macOS Keychain.
 - **Runtime injection.** `sct run -- <command>` gives the command its secrets as environment variables.
+- **SDK.** The dependency-free `@sct/env` package loads secrets into `process.env` and applies saved changes without a restart.
 - **Sharing.** .sct sends encrypted secrets to a verified Mac through AirDrop or a relay.
 - **Agent Access.** Coding agents use secrets through a CLI and an MCP server. Each request opens a local approval window. Agents never receive secret values.
 
@@ -33,6 +34,55 @@ Then, in the app, add a project folder and its secrets. Run the project from its
 ```sh
 sct run -- bun run dev
 ```
+
+To load secrets in code, build the SDK and add it to your application. The SDK is not on npm yet.
+
+```sh
+bun run build:sdk
+bun add /absolute/path/to/.sct/packages/env   # Run this command in your application folder.
+```
+
+Load the secrets before the application imports:
+
+```ts
+import { loadEnv } from '@sct/env'
+
+await loadEnv()
+await import('./server.js')
+```
+
+See the [SDK guide](packages/env/README.md).
+
+## Share through the relay
+
+The relay lets two Macs share secrets when they are not near each other.
+The app connects to the hosted relay (SpacetimeDB Maincloud, database `sct-relay`) when it starts.
+You need no account, login, or configuration. The relay stores ciphertext and routing metadata only.
+
+This check is optional. It requires the [SpacetimeDB CLI](docs/relay.md#install-the-cli). To check that a Mac can reach the relay, run:
+
+```sh
+spacetime describe sct-relay --server maincloud --anonymous
+```
+
+Pair the two Macs one time. On both Macs, open **Sharing**, then the **Relay** tab.
+
+1. On Mac B, copy the ID under **This device’s relay ID**. Send it to Mac A by any channel.
+2. On Mac A, enter the relay ID and select **Request pairing**.
+3. Both Macs show a pairing code. Compare the two codes in person or on a call.
+4. If the codes are the same, select **I compared this code on both Macs** and **Confirm relay device** on each Mac.
+   If the codes are different, select **Remove**.
+
+To send secrets:
+
+1. On the sending Mac, select a project, the paired recipient, and the secrets.
+2. Optionally, set **Access expires**.
+3. Select **Queue encrypted transfer**. The recipient Mac does not need to be online.
+
+To receive secrets, open **Received transfers** on the recipient Mac. Select a local project and **Import and send receipt**.
+
+AirDrop pairing and relay pairing are separate. A Mac that you verified through AirDrop must also pair on the **Relay** tab.
+To use your own relay, see [relay setup](docs/relay.md).
 
 ## Agent setup prompt
 
