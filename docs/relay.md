@@ -238,7 +238,7 @@ A delivery deadline blocks a later import of that transfer.
 An access deadline blocks later use of an imported copy and starts local cleanup.
 Expiry cannot revoke a credential that a process received already.
 It also cannot remove copies that exist outside .sct.
-Issue #20 records the complete two-device security check.
+The [secure sharing check](secure-sharing-check.md) records the issue #20 result and expiry limits.
 
 ## Client bindings
 
