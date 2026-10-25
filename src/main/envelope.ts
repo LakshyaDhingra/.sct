@@ -2,9 +2,10 @@ import { createCipheriv, createDecipheriv, createHash, diffieHellman, generateKe
 import type { KeyObject } from 'node:crypto'
 import { decodeBase64, describeDevice, exportPublic, publicKey, readObject, requirePayload, transferLimit } from './transfer'
 import type { DeviceCard, DeviceIdentity } from './transfer'
-import type { RelayGrant, RelayReceipt, RelayReceiptContents, RelayTransfer, RelayTransferContents, RelayWrappedKey } from '../shared/envelope'
+import type { RelayExpiryContents, RelayExpiryNotice, RelayGrant, RelayReceipt, RelayReceiptContents,
+  RelayTransfer, RelayTransferContents, RelayWrappedKey } from '../shared/envelope'
 
-// The relay keeps messages until #19 adds removal, so a delivery deadline cannot be later than this limit.
+// The relay rejects a delivery deadline that is later than this limit.
 export const deliveryLimit = 7 * 24 * 60 * 60 * 1000
 const recipientLimit = 100
 // A sender clock can be slightly ahead of the recipient clock.
@@ -165,6 +166,49 @@ export function openReceipt(self: RelaySelf, recipient: RelayPeerKeys, transferI
   }
 }
 
+// The recipient reports local grant cleanup to the original sender. Only that sender can read the notice.
+export function sealExpiryNotice(self: RelaySelf, sender: RelayPeerKeys, transferId: string,
+  contents: RelayExpiryContents, now = Date.now()): Buffer {
+  requireExpiryContents({ ...contents })
+  if (!isMessageId(transferId)) throw invalid()
+  const ephemeral = generateKeyPairSync('x25519')
+  const header = {
+    format: 'sct-relay' as const, version: 1 as const, kind: 'expiry' as const, correlationId: transferId,
+    sender: self.identity, senderDevice: describeDevice(self.keys.card).id, recipient: sender.identity, createdAt: now,
+    ephemeralKey: exportPublic(ephemeral.publicKey), iv: randomBytes(12).toString('base64')
+  }
+  const key = deriveKey(ephemeral.privateKey, publicKey(sender.card.encryptionKey, 'x25519'), header.correlationId,
+    `sct-relay-expiry-v1/${header.sender}/${header.recipient}`)
+  try {
+    const unsigned = { ...header, ...encrypt(key, Buffer.from(header.iv, 'base64'), Buffer.from(JSON.stringify(contents)), expiryHeader(header)) }
+    return Buffer.from(JSON.stringify({ ...unsigned, signature: sign(null, expiryBody(unsigned), self.keys.signingKey).toString('base64') }))
+  } finally {
+    key.fill(0)
+  }
+}
+
+export function openExpiryNotice(self: RelaySelf, recipient: RelayPeerKeys, transferId: string,
+  bytes: Buffer, now = Date.now()): RelayExpiryContents {
+  const notice = readExpiryNotice(bytes)
+  if (notice.correlationId !== transferId || notice.sender !== recipient.identity || notice.recipient !== self.identity ||
+    notice.senderDevice !== describeDevice(recipient.card).id) {
+    throw new Error('This expiry notice belongs to a different transfer or device.')
+  }
+  if (!verify(null, expiryBody(notice), publicKey(recipient.card.signingKey, 'ed25519'), Buffer.from(notice.signature, 'base64'))) {
+    throw new Error('The expiry notice signature is invalid.')
+  }
+  if (notice.createdAt > now + clockSkew) throw new Error('The expiry notice creation time is invalid.')
+  const key = deriveKey(self.keys.encryptionKey, publicKey(notice.ephemeralKey, 'x25519'), notice.correlationId,
+    `sct-relay-expiry-v1/${notice.sender}/${notice.recipient}`)
+  try {
+    return requireExpiryContents(readObject(decrypt(key, notice, expiryHeader(notice))))
+  } catch {
+    throw new Error('Cannot decrypt this expiry notice.')
+  } finally {
+    key.fill(0)
+  }
+}
+
 function requireRecipients(self: RelaySelf, recipients: RelayPeerKeys[]): void {
   if (recipients.length === 0 || recipients.length > recipientLimit) throw new Error(`Select 1 to ${recipientLimit} verified recipients.`)
   const identities = new Set(recipients.map((recipient) => recipient.identity))
@@ -214,10 +258,35 @@ function readReceipt(bytes: Buffer): RelayReceipt {
   }
 }
 
+function readExpiryNotice(bytes: Buffer): RelayExpiryNotice {
+  const data = readObject(bytes)
+  if (data.format !== 'sct-relay' || data.version !== 1 || data.kind !== 'expiry' || !isMessageId(data.correlationId) ||
+    !isHex(data.sender) || !isHex(data.senderDevice) || !isHex(data.recipient) || !Number.isSafeInteger(data.createdAt)) {
+    throw invalid()
+  }
+  publicKey(data.ephemeralKey, 'x25519')
+  decodeBase64(data.iv, 12)
+  decodeBase64(data.tag, 16)
+  decodeBase64(data.signature, 64)
+  decodeBase64(data.ciphertext)
+  return {
+    format: data.format, version: data.version, kind: data.kind, correlationId: data.correlationId, sender: data.sender,
+    senderDevice: data.senderDevice, recipient: data.recipient, createdAt: data.createdAt as number,
+    ephemeralKey: data.ephemeralKey as string, iv: data.iv as string, tag: data.tag as string,
+    ciphertext: data.ciphertext as string, signature: data.signature as string
+  }
+}
+
 function requireReceiptContents(data: Record<string, unknown>): RelayReceiptContents {
   if (data.status !== 'received' || !Number.isSafeInteger(data.receivedAt) || !Number.isSafeInteger(data.secretCount) ||
     (data.secretCount as number) < 1 || (data.secretCount as number) > 1000) throw invalid()
   return { status: data.status, receivedAt: data.receivedAt as number, secretCount: data.secretCount as number }
+}
+
+function requireExpiryContents(data: Record<string, unknown>): RelayExpiryContents {
+  if (data.status !== 'expired' || !Number.isSafeInteger(data.expiredAt) || !Number.isSafeInteger(data.secretCount) ||
+    (data.secretCount as number) < 1 || (data.secretCount as number) > 1000) throw invalid()
+  return { status: data.status, expiredAt: data.expiredAt as number, secretCount: data.secretCount as number }
 }
 
 function wrapKey(ephemeral: KeyObject, recipient: RelayPeerKeys, header: TransferHeader, messageKey: Buffer): Buffer {
@@ -274,6 +343,7 @@ function decrypt(key: Buffer, { iv, tag, ciphertext }: { iv: string; tag: string
 
 type TransferHeader = Omit<RelayTransfer, 'tag' | 'ciphertext' | 'signature'>
 type ReceiptHeader = Omit<RelayReceipt, 'tag' | 'ciphertext' | 'signature'>
+type ExpiryHeader = Omit<RelayExpiryNotice, 'tag' | 'ciphertext' | 'signature'>
 
 // The ciphertext authenticates every routing field, and the signature covers the routing fields and the ciphertext.
 function transferHeader(header: TransferHeader): Buffer {
@@ -296,6 +366,15 @@ function receiptHeader(header: ReceiptHeader): Buffer {
 
 function receiptBody(receipt: Omit<RelayReceipt, 'signature'>): Buffer {
   return Buffer.concat([receiptHeader(receipt), Buffer.from(receipt.tag, 'base64'), Buffer.from(receipt.ciphertext, 'base64')])
+}
+
+function expiryHeader(header: ExpiryHeader): Buffer {
+  return Buffer.from(JSON.stringify([header.format, header.version, header.kind, header.correlationId, header.sender, header.senderDevice,
+    header.recipient, header.createdAt, header.ephemeralKey, header.iv]))
+}
+
+function expiryBody(notice: Omit<RelayExpiryNotice, 'signature'>): Buffer {
+  return Buffer.concat([expiryHeader(notice), Buffer.from(notice.tag, 'base64'), Buffer.from(notice.ciphertext, 'base64')])
 }
 
 function isMessageId(value: unknown): value is string {

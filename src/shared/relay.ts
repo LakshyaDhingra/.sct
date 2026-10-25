@@ -50,6 +50,8 @@ export interface RelaySentItem {
   createdAt: string | null
   deliverBy: string | null
   receivedAt: string | null
+  accessExpiresAt: string | null
+  accessExpiredAt: string | null
   error: string | null
 }
 

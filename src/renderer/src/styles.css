@@ -1,6 +1,8 @@
-/* Hallmark: app screen; theme: Terminal by request; signature: relay delivery queue; finish-review: fix, 1 resolved; v2.0.0. */
-/* Review: preserve the app shell. Make live and cached delivery state distinct without another hue. */
+/* Hallmark: app screen; theme: Terminal by request; signature: relay delivery queue; finish-review: in-thread, ship; v2.0.0. */
+/* Review: preserve the app shell. Separate delivery deadlines from recipient access cleanup without another hue. */
 /* Waive: the send handoff uses smooth eased 3D motion by request, not stepped motion. Reduced motion shows its last frame. */
+/* Hallmark · answered F4 · native buttons and button links use one primary recipe for different actions. */
+/* Hallmark · dismissed 70 · the relay subscription reports each real waiting transfer. */
 @font-face {
   font-family: "Martian Mono";
   font-style: normal;
@@ -72,7 +74,7 @@ h3 { font-size: 15px; margin: 0; }
 .empty-state { min-height: 300px; display: flex; flex-direction: column; justify-content: center; border-block: 1px solid var(--color-rule); padding: 44px 32px; background: var(--color-paper-2); }
 .empty-state p { color: var(--color-ink-2); font-size: 15px; margin: 0; }
 .empty-state .empty-note { color: var(--color-muted); font-size: 11px; margin-top: 28px; }
-.panel { border: 1px solid var(--color-rule-2); background: var(--color-paper-2); padding: 28px; margin-bottom: 28px; }
+.panel { border: 1px solid var(--color-rule-2); background: var(--color-paper-2); color: var(--color-ink); padding: 28px; margin-bottom: 28px; }
 fieldset { border: 0; margin: 28px 0 0; padding: 0; min-width: 0; }
 label { display: block; color: var(--color-ink-2); font-size: 12px; margin: 24px 0 12px; }
 label:first-child { margin-top: 0; }
@@ -202,11 +204,11 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .relay-code { margin-top: 20px; border-top: 1px solid var(--color-rule); padding-top: 16px; }
 .relay-code > p { margin: 0; color: var(--color-accent); font-size: 18px; font-stretch: var(--stretch-display); overflow-wrap: anywhere; }
 .relay-code > button { margin-top: 16px; }
-.relay-activity { margin-top: 36px; }
+.relay-activity { margin-top: 36px; overflow-x: auto; }
 .relay-activity .group-heading { align-items: center; margin-bottom: 16px; }
 .relay-activity .group-heading h2 { margin: 0; }
 .relay-activity .group-heading span { color: var(--color-muted); font-size: 12px; }
-.relay-activity table { width: 100%; border-collapse: collapse; margin-bottom: 28px; table-layout: fixed; }
+.relay-activity table { width: 100%; min-width: 760px; border-collapse: collapse; margin-bottom: 28px; table-layout: fixed; }
 .relay-activity caption { padding: 12px 0; color: var(--color-ink-2); text-align: left; font-size: 12px; }
 .relay-activity th, .relay-activity td { border-bottom: 1px solid var(--color-rule); padding: 12px 16px 12px 0; text-align: left; font-size: 12px; overflow-wrap: anywhere; }
 .relay-activity th { color: var(--color-muted); font-weight: 400; white-space: nowrap; }
@@ -241,7 +243,7 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .card-notice { margin: 24px 0 0; padding: 12px; border: 1px solid var(--color-accent); color: var(--color-accent); font-size: 15px; }
 
 /* The card moves with transform only. --x runs from 0 (sender slot) to 1 (recipient slot) across the stage width. */
-.handoff-dialog { width: min(760px, calc(100vw - 32px)); max-width: none; border: 1px solid var(--color-rule-2); border-radius: 0; background: var(--color-paper-2); color: var(--color-ink); padding: 28px; }
+.handoff-dialog { width: 100%; max-width: 760px; border: 1px solid var(--color-rule-2); border-radius: 0; background: var(--color-paper-2); color: var(--color-ink); padding: 28px; }
 .handoff-dialog:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; }
 .handoff-dialog::backdrop { background: var(--color-scrim); }
 .handoff-dialog { overflow: hidden; }
@@ -268,7 +270,7 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .handoff-label-gate { left: 50%; transform: translateX(-50%); color: var(--color-muted); }
 .handoff-label-to { right: var(--inset); text-align: right; }
 .handoff-note { color: var(--color-accent); opacity: 0; }
-.handoff-object { --x: 0; --y: 0; --rx: 14; --ry: 0; --r: 0; --s: 1; position: absolute; top: var(--top); left: var(--inset); width: var(--card-w); height: var(--card-h); opacity: 0; transform-style: preserve-3d; transform: translate3d(calc(var(--x) * (100cqw - var(--card-w) - 2 * var(--inset))), calc(var(--y) * 1px), 0) rotateX(calc(var(--rx) * 1deg)) rotateY(calc(var(--ry) * 1deg)) rotate(calc(var(--r) * 1deg)) scale(var(--s)); will-change: transform; }
+.handoff-object { --x: 0; --y: 0; --rx: 14; --ry: 0; --r: 0; --s: 1; position: absolute; top: var(--top); left: var(--inset); width: var(--card-w); height: var(--card-h); opacity: 1; transform-style: preserve-3d; transform: translate3d(calc(var(--x) * (100cqw - var(--card-w) - 2 * var(--inset))), calc(var(--y) * 1px), 0) rotateX(calc(var(--rx) * 1deg)) rotateY(calc(var(--ry) * 1deg)) rotate(calc(var(--r) * 1deg)) scale(var(--s)); will-change: transform; }
 .handoff-object-key { padding: 8px 12px; transform-style: preserve-3d; }
 .handoff-key { position: relative; display: block; height: 52px; transform-style: preserve-3d; }
 .handoff-key-layer { position: absolute; inset: 0; width: 100%; height: 100%; fill: var(--color-rule-2); }
@@ -280,7 +282,7 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .handoff-key-text { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; backface-visibility: hidden; }
 .handoff-key-text > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .handoff-face { position: absolute; inset: 0; border: 1px solid var(--color-accent); background: var(--color-paper-3); backface-visibility: hidden; overflow: hidden; }
-.handoff-front { display: grid; grid-template-rows: auto auto 1fr auto; gap: 6px; padding: 10px 12px; }
+.handoff-front { display: grid; grid-template-rows: auto auto 1fr auto; gap: 8px; padding: 8px 12px; }
 .handoff-front > span, .handoff-bottom > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .handoff-kind { color: var(--color-accent); font-size: 9px; }
 .handoff-chip { width: 26px; height: 19px; border: 1px solid var(--color-ink-2); background: linear-gradient(var(--color-ink-2), var(--color-ink-2)) center / 100% 1px no-repeat, linear-gradient(var(--color-ink-2), var(--color-ink-2)) center / 1px 100% no-repeat; }
@@ -294,7 +296,7 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .handoff-front > .handoff-fingerprint { align-self: end; width: 19ch; white-space: normal; color: var(--color-ink-2); font-size: 9px; line-height: 1.25; word-spacing: 0; }
 .handoff-device-back { justify-content: center; border-left-width: 4px; padding: 12px; }
 .handoff-device-back .handoff-back-text { margin: 0; padding: 0; white-space: normal; }
-.handoff-back { display: flex; flex-direction: column; gap: 8px; transform: rotateY(180deg); padding-bottom: 10px; }
+.handoff-back { display: flex; flex-direction: column; gap: 8px; transform: rotateY(180deg); padding-bottom: 8px; }
 .handoff-stripe { height: 22px; margin-top: 12px; background: var(--color-rule-2); }
 .handoff-signature { height: 14px; margin-inline: 12px; width: 60%; background: repeating-linear-gradient(90deg, var(--color-rule) 0 4px, var(--color-paper) 4px 8px); }
 .handoff-back-text { margin-top: auto; padding-inline: 12px; color: var(--color-ink-2); font-size: 9px; }

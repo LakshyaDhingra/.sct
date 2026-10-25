@@ -116,6 +116,10 @@ The desktop app connects to the relay when it starts. A command-line process doe
   Received ciphertext and delivery status stay available after a restart without the relay.
 - The app saves queued transfers in `relay/outbox-<server hash>.sct` and imported transfers in `relay/received-<server hash>.sct`.
   These files use the same encryption. Their keys are in `.sct-relay` under `outbox/<server>/<database>` and `received/<server>/<database>`.
+  The app retains a sent record for 30 days after its last delivery or access deadline.
+  It retains a received record until cleanup can queue its expiry notice, then for the applicable 30-day period.
+- The app saves queued expiry notices in `relay/notices-<server hash>.sct`.
+  The Keychain account is `notices/<server>/<database>`.
 - Local vault operations do not depend on the relay.
 
 The renderer reads the relay state with `getRelayState` and `onRelayChanged`.
@@ -142,7 +146,8 @@ Do these steps on the **Relay** tab of **Sharing**:
 3. Both apps show the pending pair and the same pairing code.
    The code comes from both relay identities and both device public keys.
 4. The users compare the codes, for example in person or on a call.
-   Device B shows the code for a pending request even when it saved the keys of device A before, for example after a relay data reset.
+   Device B shows the code for a pending request even when it saved the keys of device A before.
+   For example, this can occur after a relay data reset.
 5. If the codes are the same, each user selects **I compared this code on both Macs**, then **Confirm relay device**.
    Each app saves the public keys of the other device.
    The app of device B also calls `confirmPair`. On the relay, only the device that did not send the request can accept the pair.
@@ -184,6 +189,12 @@ A retry with the same ID must contain the same ciphertext, recipient, deadline, 
 The relay rejects the ID when any of those fields differ.
 After a failed publication or acknowledgment, the app tries again after 1 s, then up to 30 s between attempts.
 The app does not publish a transfer after its delivery deadline.
+The app uses the original transfer ID for each retry.
+
+The relay runs scheduled maintenance each minute. It uses relay server time.
+It deletes a pending delivery after its delivery deadline.
+It keeps messages, received delivery records, and encrypted receipts for 30 days after the delivery deadline.
+It then removes these records.
 
 **Delivery activity** shows each sent transfer with one of these states:
 
@@ -205,6 +216,16 @@ It saves the access deadline and the injection-only restriction with each import
 An injection-only secret can enter an approved process environment, but .sct cannot share it again.
 An expired grant blocks new local use.
 
+.sct checks access deadlines before import and before each local read.
+It also deletes expired grants at startup, each minute, and after the Mac resumes.
+Cleanup deletes the encrypted vault entry and its Keychain key.
+The app saves each cleanup result in an encrypted local history.
+
+After successful cleanup, the recipient queues a signed and encrypted expiry notice for the original sender.
+The app retries the notice with bounded backoff when the relay reconnects.
+The relay keeps each notice for 30 days.
+The sender checks the notice. Then the UI reports the access expiry and successful cleanup.
+
 After the vault import, .sct saves an encrypted signed receipt before it acknowledges the delivery.
 The relay keeps the receipt for an offline sender.
 The sender verifies the receipt before it reports durable delivery.
@@ -212,7 +233,11 @@ Retries reuse the original IDs and cannot import the same transfer two times.
 
 A modal shows each relay send and each new arrival. See [send and receive animations](sharing.md#send-and-receive-animations).
 
-Issue #19 adds scheduled expiry cleanup and expiry notifications.
+Delivery expiry and local access expiry are different states.
+A delivery deadline blocks a later import of that transfer.
+An access deadline blocks later use of an imported copy and starts local cleanup.
+Expiry cannot revoke a credential that a process received already.
+It also cannot remove copies that exist outside .sct.
 Issue #20 records the complete two-device security check.
 
 ## Client bindings

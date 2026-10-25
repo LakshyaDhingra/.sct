@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { randomBytes } from 'node:crypto'
 import { createIdentity } from '../src/main/transfer.ts'
-import { deliveryLimit, findReceipt, openReceipt, openTransfer, readTransfer, sealReceipt, sealTransfer } from '../src/main/envelope.ts'
+import { deliveryLimit, findReceipt, openExpiryNotice, openReceipt, openTransfer, readTransfer,
+  sealExpiryNotice, sealReceipt, sealTransfer } from '../src/main/envelope.ts'
 import type { RelayPeerKeys, RelaySelf } from '../src/main/envelope.ts'
 import type { RelayTransferContents } from '../src/shared/envelope.ts'
 
@@ -50,6 +51,9 @@ test('each recipient decrypts the transfer and the sender decrypts the correlate
   const opened = openTransfer(bob, alice, sealed.payload, wrapped(sealed, bob), now + hour)
   const receipt = sealReceipt(bob, alice, opened.transfer, { status: 'received', receivedAt: now + hour, secretCount: 2 }, now + hour)
   assert.deepEqual(openReceipt(alice, bob, sealed.id, receipt, now + hour), { status: 'received', receivedAt: now + hour, secretCount: 2 })
+  const notice = sealExpiryNotice(bob, alice, sealed.id, { status: 'expired', expiredAt: now + 48 * hour, secretCount: 2 }, now + 48 * hour)
+  assert.deepEqual(openExpiryNotice(alice, bob, sealed.id, notice, now + 48 * hour),
+    { status: 'expired', expiredAt: now + 48 * hour, secretCount: 2 })
 })
 
 test('only an intended recipient decrypts the payload', () => {
@@ -90,6 +94,9 @@ test('tampering with routing fields, ciphertext, signature, or wrapped key fails
   const receipt = sealReceipt(bob, alice, transfer, { status: 'received', receivedAt: now, secretCount: 2 }, now)
   assert.throws(() => openReceipt(alice, bob, sealed.id, changed(receipt, 'createdAt', now - 1), now), /signature is invalid/)
   assert.throws(() => openReceipt(alice, bob, sealTransfer(alice, [bob], contents(), now + hour, now).id, receipt, now), /different transfer/)
+  const notice = sealExpiryNotice(bob, alice, sealed.id, { status: 'expired', expiredAt: now + hour, secretCount: 2 }, now)
+  assert.throws(() => openExpiryNotice(alice, bob, sealed.id, changed(notice, 'createdAt', now - 1), now), /signature is invalid/)
+  assert.throws(() => openExpiryNotice(alice, carol, sealed.id, notice, now), /different transfer or device/)
 })
 
 test('a sender without the verified keys fails', () => {

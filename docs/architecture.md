@@ -1,7 +1,7 @@
 # .sct architecture and implementation order
 
-.sct uses Electron, React, and TypeScript. The Electron main process owns every sensitive operation on a Mac:
-vault access, Keychain, encryption, the start of child processes, sharing, relay connections, and Agent Access.
+.sct uses Electron, React, and TypeScript. The Electron main process owns every sensitive operation on a Mac.
+These operations include vault access, Keychain, encryption, child processes, sharing, relay connections, and Agent Access.
 The sandboxed renderer calls a narrow preload bridge and receives metadata only.
 Each Mac keeps its own vault, private keys, cached activity, and pending messages. No local server or separate daemon runs.
 
@@ -143,6 +143,8 @@ All tables are private. Clients read data only through the views.
 | `message` | `id` (primary key, set by the sender), `sender`, `payload`, `createdAt`, `deliverBy` | One row for each published transfer |
 | `delivery` | `id` (primary key), `messageId`, `recipient`, `wrappedKey`, `status` (`Pending` or `Received`), `receivedAt` | One row for each recipient of a message |
 | `receipt` | `deliveryId` (primary key), `receipt` | The encrypted signed receipt of one delivery |
+| `expiry_notice` | `id` (primary key), `correlationId`, `sender`, `recipient`, `notice`, `createdAt`, `retainUntil` | One encrypted local-cleanup notice |
+| `maintenance` | `id` (primary key), `scheduledAt` | The relay maintenance schedule |
 
 | Reducer | Behavior |
 |---|---|
@@ -152,12 +154,15 @@ All tables are private. Clients read data only through the views.
 | `removePair(pairId)` | Deletes the pair. Either device of the pair can call it, for example after the pairing codes differ. The devices can then pair again. |
 | `publishSecret(id, payload, deliverBy, recipients)` | Saves one message and one pending delivery for each recipient. Each recipient must have a `Verified` pair with the caller. The deadline must be in the next 7 days. An exact retry with the same ID succeeds. A changed retry fails. |
 | `acknowledge(messageId, receipt)` | Saves the encrypted receipt in `receipt` and marks the caller's delivery as received. A second call keeps the first receipt. |
+| `publishExpiryNotice(id, correlationId, recipient, notice)` | Saves one encrypted notice for a verified peer. An exact retry succeeds. |
+| `maintainRelay(schedule)` | Deletes expired pending deliveries and records that passed their retention deadline. Only the relay scheduler can call it. |
 
 | View | Rows |
 |---|---|
 | `my_inbox` | The caller's pending deliveries with ciphertext, wrapped key, sender, and deadlines |
 | `my_sent` | The caller's deliveries with recipient, deadline, status, receipt, and receipt time |
 | `my_peers` | For each pair of the caller, the pair ID, the pair status, the initiator, and the `device` row of the other device |
+| `my_expiry_notices` | Encrypted expiry notices for the caller |
 
 The relay takes `sender` from the authenticated caller. It sets `createdAt` and `receivedAt` from server time.
 A delivery row leaves `my_inbox` after `acknowledge`. The recipient app keeps its own local record.
@@ -168,7 +173,8 @@ Issue #11 defines the `pair` table and the pair reducers.
 Both users compare the pairing code in the app before they accept the pair. See [relay pairing](relay.md#pairing).
 Issue #16 defines the signed encrypted transfer and receipt bytes.
 Issue #17 adds delivery deadlines and exact retries that reuse the original ID.
-Until #19 adds cleanup, expired messages and delivery rows stay on the relay.
+Scheduled relay maintenance removes expired pending deliveries.
+The relay retains messages, acknowledgments, and duplicate-delivery records for 30 days after the delivery deadline.
 The `acknowledge` reducer stores the encrypted authenticated receipt from issue #16.
 
 ## Phase 2 delivery and expiry rules

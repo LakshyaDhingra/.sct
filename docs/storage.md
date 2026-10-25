@@ -18,6 +18,10 @@ The renderer clears the value field after each request. It never receives a stor
 A secret that arrives through the relay keeps its grant. See [relay delivery](relay.md#relay-delivery).
 After the access deadline, .sct refuses every read of that secret, including `sct run`.
 .sct does not share an injection-only secret again through AirDrop or the relay.
+.sct deletes an expired received secret at startup, each minute, and after the Mac resumes.
+It deletes the encrypted vault entry and the applicable Keychain key.
+The app saves cleanup results in an encrypted file in its application data folder.
+If the Mac is off or asleep, cleanup starts when the app starts or the Mac resumes.
 
 ## Files and keys
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, powerMonitor } from 'electron'
 import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
 import { execFile } from 'node:child_process'
 import { homedir, hostname } from 'node:os'
@@ -143,9 +143,24 @@ app.whenReady().then(async () => {
     sharing.previewRelayTransfer.bind(sharing),
     sharing.acceptRelayTransfer.bind(sharing),
     sharing.verifyRelayReceipt.bind(sharing),
+    sharing.prepareRelayExpiryNotice.bind(sharing),
+    sharing.verifyRelayExpiryNotice.bind(sharing),
     () => mainWindow?.webContents.send('relay:changed'))
   await relay.start()
-  app.on('will-quit', () => relay.stop())
+  await relay.queueGrantExpiryNotifications(await vault.grantCleanupOutcomes())
+  const cleanExpiredGrants = async () => {
+    await relay.queueGrantExpiryNotifications(await vault.cleanupExpiredGrants())
+  }
+  const cleanupTimer = setInterval(() => {
+    void cleanExpiredGrants().catch((error: unknown) => console.error('Scheduled grant cleanup failed.', error))
+  }, 60_000)
+  powerMonitor.on('resume', () => {
+    void cleanExpiredGrants().catch((error: unknown) => console.error('Resume grant cleanup failed.', error))
+  })
+  app.on('will-quit', () => {
+    clearInterval(cleanupTimer)
+    relay.stop()
+  })
   handle('relay:state', () => relay.state())
   handle('relay:request-pair', (identity) => relay.requestPair(identity))
   handle('relay:confirm-pair', (input) => relay.confirmPair(input))
@@ -229,6 +244,10 @@ async function runAgentSession(): Promise<number> {
                 (await getSharing()).acceptRelayTransfer(identity, sender, payload, wrappedKey, projectId, beforeWrite),
               async (identity, recipient, transferId, receipt) =>
                 (await getSharing()).verifyRelayReceipt(identity, recipient, transferId, receipt),
+              async (identity, sender, transferId, expiredAt, secretCount) =>
+                (await getSharing()).prepareRelayExpiryNotice(identity, sender, transferId, expiredAt, secretCount),
+              async (identity, recipient, transferId, notice) =>
+                (await getSharing()).verifyRelayExpiryNotice(identity, recipient, transferId, notice),
               () => undefined)
             await service.start()
             return service

@@ -423,7 +423,8 @@ function RelayActivity({ state, projects, busy, run, updateSecrets }: {
       ) : <>
         {state.sent.length > 0 && <table>
           <caption>Sent transfers</caption>
-          <thead><tr><th scope="col">Transfer</th><th scope="col">Recipient</th><th scope="col">Status</th><th scope="col">Deadline</th></tr></thead>
+          <thead><tr><th scope="col">Transfer</th><th scope="col">Recipient</th><th scope="col">Delivery</th>
+            <th scope="col">Delivery deadline</th><th scope="col">Recipient access</th></tr></thead>
           <tbody>{state.sent.map((item) => <RelayActivityRow key={`${item.messageId}/${item.recipient}`} item={item} state={state} />)}</tbody>
         </table>}
         {state.inbox.length > 0 && <div className="relay-inbox">
@@ -533,7 +534,16 @@ function RelayActivityRow({ item, state }: { item: RelaySentItem; state: RelaySt
       {item.error && <span className="delivery-error">{item.error}</span>}
     </td>
     <td>{item.deliverBy ? formatTime(item.deliverBy) : 'Not cached'}</td>
+    <td>{relayAccessText(item)}</td>
   </tr>
+}
+
+function relayAccessText(item: RelaySentItem): string {
+  if (item.accessExpiredAt) return `Expired and removed ${formatTime(item.accessExpiredAt)}`
+  if (!item.accessExpiresAt) return 'Does not expire'
+  return Date.parse(item.accessExpiresAt) <= Date.now()
+    ? `Expired ${formatTime(item.accessExpiresAt)}. Waiting for cleanup notice.`
+    : `Expires ${formatTime(item.accessExpiresAt)}`
 }
 
 function peerName(state: RelayState, identity: string): string {
