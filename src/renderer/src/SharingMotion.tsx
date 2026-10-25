@@ -9,7 +9,7 @@ const reducedMotion = { reduce: '(prefers-reduced-motion: reduce)' }
 const holdAfterEnd = 1500
 
 // prepare: the main process makes the file. wait: the object waits at the AirDrop picker or in the relay queue.
-// handed: the picker closed. macOS reports no delivery, so the object goes through the gate and never lands.
+// handed: the picker closed. macOS reports no delivery, so the object goes into the AirDrop rings and never lands.
 // delivered: the relay reported that the recipient received the transfer, so the object lands on the recipient.
 // arrived: this Mac received a transfer, so the object lands here.
 export type HandoffStage = 'prepare' | 'wait' | 'handed' | 'delivered' | 'arrived'
@@ -28,23 +28,36 @@ const keyPath = 'M0 8H48V26H160V52H148V38H142V48H134V38H128V50H118V38H48V56H0ZM1
 // Copies of the outline at different depths give the flat key a visible thickness when it turns.
 const keyLayers = [0, 1, 2, 3, 4]
 
+// The SpacetimeDB mark: two orbit swooshes around a ring. The relay hub draws it in the accent color.
+const relayMark = [
+  'M28.8002 15.317C28.5535 9.53226 29.63 6.19046 35 0L24.2649 10.9106C26.8343 14.2552 26.6051 19.0995 23.5774 22.1767C20.5498 25.2538 15.7834 25.4867 12.4925 22.8754L10.5042 24.8962L10.5116 24.9024L7.35285 28.1361C9.73784 26.7321 13.4208 27.1349 15.6425 27.3779C16.2579 27.4452 16.7611 27.5003 17.0937 27.5013C20.1371 27.6534 23.2301 26.5483 25.5544 24.186C27.9465 21.7549 29.0284 18.4965 28.8002 15.317Z',
+  'M17.9063 4.49871C18.2389 4.49971 18.7421 4.55476 19.3575 4.62207C21.5792 4.86508 25.2622 5.26792 27.6472 3.86395L24.4884 7.0976L24.4958 7.10383L22.5075 9.12462C19.2166 6.51328 14.4502 6.74618 11.4226 9.82332C8.3949 12.9005 8.16574 17.7448 10.7351 21.0894L0 32C5.36996 25.8095 6.44651 22.4677 6.1998 16.683C5.97163 13.5035 7.05355 10.2451 9.44557 7.81402C11.7699 5.45167 14.8629 4.34657 17.9063 4.49871Z',
+  'M24.7486 16C24.7486 20.0687 21.5033 23.367 17.5 23.367C13.4967 23.367 10.2514 20.0687 10.2514 16C10.2514 11.9313 13.4967 8.63292 17.5 8.63292C21.5033 8.63292 24.7486 11.9313 24.7486 16ZM17.5 21.6C20.5752 21.6 23.0682 19.0928 23.0682 16C23.0682 12.9072 20.5752 10.4 17.5 10.4C14.4248 10.4 11.9318 12.9072 11.9318 16C11.9318 19.0928 14.4248 21.6 17.5 21.6Z'
+]
+// Radii of the AirDrop rings, from the center outward.
+const ringRadii = [36, 72, 108, 144, 180]
+
+type Frame = Record<string, number>
+const landed: Frame = { '--x': 1, '--y': 0, '--rx': 0, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 }
+
 // The last frame of each stage. Reduced motion shows it with no movement.
-// --x runs from 0 (sender slot) to 1 (recipient slot). --rx and --ry are 3D rotations in degrees.
-const still: Record<HandoffStage, Record<string, number>> = {
-  prepare: { '--x': 0, '--y': 0, '--rx': 14, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 },
-  wait: { '--x': 0.5, '--y': -14, '--rx': 14, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 },
-  handed: { '--x': 0.56, '--y': -14, '--rx': 14, '--ry': 90, '--r': 0, '--s': 0.9, opacity: 0 },
-  delivered: { '--x': 1, '--y': 0, '--rx': 0, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 },
-  arrived: { '--x': 1, '--y': 0, '--rx': 0, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 }
+// --x runs from 0 (sender screen) to 1 (recipient screen). --rx and --ry are 3D rotations in degrees.
+// In the relay queue, the object is inside the hub, so it is not visible.
+function stillFrame(stage: HandoffStage, via: HandoffRoute): Frame {
+  if (stage === 'prepare') return { '--x': 0, '--y': 0, '--rx': 14, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 }
+  if (stage === 'wait') return { '--x': 0.5, '--y': -14, '--rx': 14, '--ry': 0, '--r': 0, '--s': via === 'relay' ? 0.2 : 1, opacity: via === 'relay' ? 0 : 1 }
+  if (stage === 'handed') return { '--x': 0.5, '--y': -14, '--rx': 14, '--ry': 90, '--r': 0, '--s': 0.6, opacity: 0 }
+  return landed
 }
 
 // A modal shows an object that travels from the sender to the recipient. It locks while work is in progress
-// and closes by itself after the object passes the AirDrop gate or lands. A relay transfer can wait in the
-// queue for a long time, so the user can close the modal while the object waits at the relay gate.
-export function HandoffModal({ heading, from, to, via = 'airdrop', stage, object, onDone }: {
+// and closes by itself after the object goes into the AirDrop rings or lands. A relay transfer can wait in the
+// queue for a long time, so the user can close the modal while the relay hub holds the object.
+export function HandoffModal({ heading, from, to, toDevice = 'mac', via = 'airdrop', stage, object, onDone }: {
   heading: string
   from: string
   to: string
+  toDevice?: 'mac' | 'phone'
   via?: HandoffRoute
   stage: HandoffStage
   object: HandoffObject
@@ -55,8 +68,6 @@ export function HandoffModal({ heading, from, to, via = 'airdrop', stage, object
   const previous = useRef<HandoffStage | null>(null)
   const locked = stage === 'prepare' || (via === 'airdrop' && stage === 'wait')
   const finished = stage === 'handed' || stage === 'delivered' || stage === 'arrived'
-  // An AirDrop import has no gate. The relay gate stays for relay arrivals.
-  const showGate = via === 'relay' || stage !== 'arrived'
 
   useEffect(() => {
     const element = dialog.current
@@ -69,9 +80,9 @@ export function HandoffModal({ heading, from, to, via = 'airdrop', stage, object
     const close = () => { closing = setTimeout(() => dialog.current?.close(), holdAfterEnd) }
     const scope = createScope({ root: stageNode, mediaQueries: reducedMotion }).add((self) => {
       if (self?.matches.reduce) {
-        utils.set('.handoff-object', still[stage])
+        utils.set('.handoff-object', stillFrame(stage, via))
         utils.set('.handoff-note', { opacity: finished ? 1 : 0 })
-        utils.set('.handoff-slot-to', { opacity: stage === 'delivered' || stage === 'arrived' ? 1 : 0.4 })
+        utils.set('.handoff-screen-to', { opacity: stage === 'delivered' || stage === 'arrived' ? 1 : 0.5 })
         if (finished) close()
         return
       }
@@ -90,49 +101,19 @@ export function HandoffModal({ heading, from, to, via = 'airdrop', stage, object
       <h2 id="handoff-heading">{heading}</h2>
       <p className="handoff-caption" role="status">{caption(stage, via, to)}</p>
       <div ref={stageNode} className="handoff" aria-hidden="true">
-        <span className="handoff-slot handoff-slot-from" />
-        <span className="handoff-slot handoff-slot-to" />
-        <span className="handoff-track"><span className="handoff-flow" /></span>
-        {showGate && <span className="handoff-gate"><span className="handoff-gate-mark" /></span>}
+        {via === 'airdrop' && <svg className="handoff-rings" viewBox="-184 -184 368 368">
+          {ringRadii.map((radius) => <circle key={radius} className="handoff-ring" r={radius} />)}
+        </svg>}
+        <span className="handoff-mac handoff-screen handoff-screen-from" />
+        <span className={`handoff-${toDevice} handoff-screen handoff-screen-to`} />
+        {via === 'relay' && <span className="handoff-hub">
+          <svg viewBox="0 0 35 32">{relayMark.map((path) => <path key={path} d={path} fillRule="evenodd" />)}</svg>
+        </span>}
         <div className={`handoff-object handoff-object-${object.shape}`}>
-          {object.shape === 'card' ? <>
-            <div className="handoff-face handoff-front">
-              <span className="handoff-kind">{object.label}</span>
-              <span className="handoff-chip" />
-              <span className="handoff-number">•••• •••• •••• ••••</span>
-              <span className="handoff-bottom">
-                <span className="handoff-title">{object.title}</span>
-                <span className="handoff-detail">{object.detail}</span>
-              </span>
-            </div>
-            <div className="handoff-face handoff-back">
-              <span className="handoff-stripe" />
-              <span className="handoff-signature" />
-              <span className="handoff-back-text">{object.back}</span>
-            </div>
-          </> : object.shape === 'device' ? <>
-            <div className="handoff-face handoff-front handoff-device">
-              <span className="handoff-kind">.sct device card</span>
-              <span className="handoff-title">{object.name}</span>
-              <span className="handoff-fingerprint">
-                {object.fingerprint.split(' ').map((group, index) => <span key={index}>{group}</span>)}
-              </span>
-            </div>
-            <div className="handoff-face handoff-back handoff-device-back">
-              <span className="handoff-back-text">Public keys only. Compare the pairing code before you confirm.</span>
-            </div>
-          </> : <>
-            <span className="handoff-key">
-              {keyLayers.map((layer) => <svg key={layer} className="handoff-key-layer" viewBox="0 0 160 64"><path d={keyPath} fillRule="evenodd" /></svg>)}
-            </span>
-            <span className="handoff-key-text">
-              <span className="handoff-title">{object.title}</span>
-              <span className="handoff-detail">{object.detail}</span>
-            </span>
-          </>}
+          <HandoffObjectFaces object={object} />
         </div>
         <span className="handoff-label handoff-label-from">{from}</span>
-        {showGate && <span className="handoff-label handoff-label-gate">{via === 'relay' ? 'Relay' : 'AirDrop'}</span>}
+        <span className="handoff-label handoff-label-gate">{via === 'relay' ? 'Relay' : 'AirDrop'}</span>
         <span className="handoff-label handoff-label-to">
           {to}
           <span className="handoff-note">{note(stage, via)}</span>
@@ -145,9 +126,47 @@ export function HandoffModal({ heading, from, to, via = 'airdrop', stage, object
   )
 }
 
+function HandoffObjectFaces({ object }: { object: HandoffObject }) {
+  if (object.shape === 'card') return <>
+    <div className="handoff-face handoff-front">
+      <span className="handoff-kind">{object.label}</span>
+      <span className="handoff-chip" />
+      <span className="handoff-number">•••• •••• •••• ••••</span>
+      <span className="handoff-bottom">
+        <span className="handoff-title">{object.title}</span>
+        <span className="handoff-detail">{object.detail}</span>
+      </span>
+    </div>
+    <div className="handoff-face handoff-back">
+      <span className="handoff-stripe" />
+      <span className="handoff-signature" />
+      <span className="handoff-back-text">{object.back}</span>
+    </div>
+  </>
+  if (object.shape === 'device') return <>
+    <div className="handoff-face handoff-front handoff-device">
+      <span className="handoff-kind">.sct device card</span>
+      <span className="handoff-title">{object.name}</span>
+      <span className="handoff-fingerprint">{object.fingerprint}</span>
+    </div>
+    <div className="handoff-face handoff-back handoff-device-back">
+      <span className="handoff-back-text">Public keys only. Compare the pairing code before you confirm.</span>
+    </div>
+  </>
+  return <>
+    <span className="handoff-key">
+      {keyLayers.map((layer) => <svg key={layer} className="handoff-key-layer" viewBox="0 0 160 64"><path d={keyPath} fillRule="evenodd" /></svg>)}
+    </span>
+    <span className="handoff-key-text">
+      <span className="handoff-title">{object.title}</span>
+      <span className="handoff-detail">{object.detail}</span>
+    </span>
+  </>
+}
+
 function caption(stage: HandoffStage, via: HandoffRoute, to: string): string {
   if (stage === 'prepare') return via === 'relay' ? 'Encrypting the transfer…' : 'Preparing the file…'
-  if (stage === 'wait') return via === 'relay' ? `Queued for ${to}. The key lands when ${to} receives it.` : `Choose ${to} in the AirDrop picker.`
+  if (stage === 'wait') return via === 'relay' ? `Queued for ${to}. The relay sends it when ${to} connects.` : `Choose ${to} in the AirDrop picker.`
   if (stage === 'handed') return `Sent if you chose ${to}. macOS does not confirm delivery.`
   if (stage === 'delivered') return `${to} received the transfer.`
   return via === 'relay' ? 'The encrypted transfer reached this Mac.' : `Imported into ${to}.`
@@ -169,56 +188,53 @@ function choreograph(stage: HandoffStage, previous: HandoffStage | null, via: Ha
   if (stage === 'wait') {
     const timeline = createTimeline()
     // The previous stage was reverted, so the object starts again from the last prepare frame.
-    if (previous === 'prepare') utils.set('.handoff-object', still.prepare)
+    if (previous === 'prepare') utils.set('.handoff-object', stillFrame('prepare', via))
     else appear(timeline)
-    travel(timeline, 0.5, 14)
-    timeline.add('.handoff-gate-mark', { scaleY: [0, 1], duration: 360, ease: 'outExpo' }, '-=240')
-    // The object hovers at the gate until the picker closes.
+    travel(timeline, 0.5, 14, 800)
+    if (via === 'relay') {
+      consume(timeline)
+      timeline.call(() => { spinHub() })
+      return
+    }
+    // The object hovers in the AirDrop rings until the picker closes.
     const hover = animate('.handoff-object', { '--y': [-14, -20], '--ry': [-10, 10], duration: 1600, ease: 'inOutSine', loop: true, alternate: true, autoplay: false })
     timeline.call(() => { hover.play() })
-    flow()
+    ripple(true)
     return
   }
   if (stage === 'handed') {
-    utils.set('.handoff-object', still.wait)
-    utils.set('.handoff-gate-mark', { scaleY: 1 })
-    // The object turns edge-on and goes through the gate.
+    utils.set('.handoff-object', stillFrame('wait', via))
+    // The object turns edge-on and goes into the center of the rings.
     createTimeline({ onComplete: close })
-      .add('.handoff-object', { '--ry': 90, '--x': still.handed['--x'], '--s': still.handed['--s'], duration: 620, ease: 'inQuad' })
+      .add('.handoff-object', { '--ry': 90, '--s': 0.6, duration: 620, ease: 'inQuad' })
       .add('.handoff-object', { opacity: 0, duration: 160, ease: 'linear' }, '-=160')
-      .add('.handoff-gate-mark', { scaleY: [1, 0], duration: 420, ease: 'outQuad' }, '-=120')
       .add('.handoff-note', { opacity: [0, 1], translateY: [4, 0], duration: 400, ease: 'outQuad' }, '-=300')
+    ripple(false)
     return
   }
   if (stage === 'delivered') {
-    // The previous stage was reverted, so the object starts again from the gate.
-    utils.set('.handoff-object', still.wait)
-    utils.set('.handoff-gate-mark', { scaleY: 1 })
+    // The hub held the object in the queue. It sends the object out to the recipient.
     const timeline = createTimeline({ onComplete: close })
-    travel(timeline, 1, 0)
-    timeline.add('.handoff-gate-mark', { scaleY: [1, 0], duration: 420, ease: 'outQuad' }, '-=900')
+    emit(timeline)
+    travel(timeline, 1, 0, 800)
     land(timeline)
-    flow()
     return
   }
   const timeline = createTimeline({ onComplete: close })
   appear(timeline)
-  travel(timeline, 1, 0)
-  // A relay arrival goes through the relay gate on its way.
-  if (via === 'relay') timeline.add('.handoff-gate-mark', { scaleY: [{ to: 1, duration: 300 }, { to: 0, duration: 400 }], ease: 'outQuad' }, '-=700')
+  if (via === 'relay') {
+    travel(timeline, 0.5, 14, 800)
+    consume(timeline)
+    emit(timeline)
+    travel(timeline, 1, 0, 800)
+  } else {
+    ripple(false)
+    travel(timeline, 1, 0)
+  }
   land(timeline)
-  flow()
 }
 
-// The object settles into the recipient slot, and the slot and the note light up.
-function land(timeline: Timeline): void {
-  timeline
-    .add('.handoff-object', { '--y': 0, '--s': [1.04, 1], duration: 420, ease: 'outBack' })
-    .add('.handoff-slot-to', { opacity: [0.4, 1], duration: 300, ease: 'outQuad' }, '-=320')
-    .add('.handoff-note', { opacity: [0, 1], translateY: [4, 0], duration: 400, ease: 'outQuad' }, '-=200')
-}
-
-// The object rises out of its slot and tilts toward the viewer.
+// The object rises out of the sender screen and tilts toward the viewer.
 function appear(timeline: Timeline): void {
   utils.set('.handoff-object', { '--x': 0, '--y': 18, '--rx': 64, '--ry': 0, '--r': 0, '--s': 0.9, opacity: 0 })
   timeline
@@ -227,7 +243,8 @@ function appear(timeline: Timeline): void {
 }
 
 // The object lifts, flips one full turn on its vertical axis along an arc, and levels out at the target.
-function travel(timeline: Timeline, to: number, tilt: number): void {
+// A flight to the middle is shorter than a flight across the whole stage.
+function travel(timeline: Timeline, to: number, tilt: number, duration = 1100): void {
   timeline
     .add('.handoff-object', { '--y': -16, '--r': -3, duration: 260, ease: 'outQuad' })
     .add('.handoff-object', {
@@ -236,16 +253,44 @@ function travel(timeline: Timeline, to: number, tilt: number): void {
       '--ry': [0, 360],
       '--rx': [{ to: 28 }, { to: tilt }],
       '--r': [{ to: 2 }, { to: 0 }],
-      duration: 1000 + to * 300,
+      duration,
       ease: 'inOutCubic'
     })
     // The flip ends at 360 degrees. Reset it to 0 so the next rotation starts from the front.
     .set('.handoff-object', { '--ry': 0 })
 }
 
-// Dashes move toward the recipient while the object is on its way.
-function flow(): void {
-  animate('.handoff-flow', { translateX: [-16, 0], duration: 600, ease: 'linear', loop: true })
+// The relay hub takes the object in: the object shrinks into the center, and the hub swells.
+function consume(timeline: Timeline): void {
+  timeline
+    .add('.handoff-object', { '--y': 0, '--s': 0.2, opacity: 0, duration: 460, ease: 'inBack' })
+    .add('.handoff-hub', { scale: [1, 1.2, 1], duration: 520, ease: 'outQuad' }, '-=260')
+}
+
+// The relay hub sends the object out again from its center.
+function emit(timeline: Timeline): void {
+  timeline
+    .set('.handoff-object', { '--x': 0.5, '--y': 0, '--rx': 14, '--ry': 0, '--r': 0, '--s': 0.2, opacity: 0 })
+    .add('.handoff-hub', { scale: [1, 1.2, 1], duration: 520, ease: 'outQuad' })
+    .add('.handoff-object', { '--s': 1, '--y': -14, opacity: 1, duration: 480, ease: 'outBack' }, '-=320')
+}
+
+// The object settles on the recipient screen, and the screen and the note light up.
+function land(timeline: Timeline): void {
+  timeline
+    .add('.handoff-object', { '--y': 0, '--s': [1.04, 1], duration: 420, ease: 'outBack' })
+    .add('.handoff-screen-to', { opacity: [0.5, 1], duration: 300, ease: 'outQuad' }, '-=320')
+    .add('.handoff-note', { opacity: [0, 1], translateY: [4, 0], duration: 400, ease: 'outQuad' }, '-=200')
+}
+
+// The hub turns slowly while the transfer waits in the queue.
+function spinHub(): void {
+  animate('.handoff-hub svg', { rotate: 360, duration: 6000, ease: 'linear', loop: true })
+}
+
+// Waves move outward through the AirDrop rings. The search keeps waving until the picker closes.
+function ripple(repeat: boolean): void {
+  animate('.handoff-ring', { opacity: [0.2, 0.9, 0.2], duration: 1200, delay: stagger(140), ease: 'inOutSine', loop: repeat })
 }
 
 // Names change to random glyphs while the app encrypts, and change back after the app decrypts.

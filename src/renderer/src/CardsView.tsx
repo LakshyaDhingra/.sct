@@ -60,7 +60,7 @@ export function CardsView() {
             </div>
           </fieldset>
         </form>
-        {handoff && <HandoffModal heading="Sending a mock card" from="This Mac" to="iPhone" stage={handoff.stage}
+        {handoff && <HandoffModal heading="Sending a mock card" from="This Mac" to="iPhone" toDevice="phone" stage={handoff.stage}
           object={{ shape: 'card', label: 'Not a payment card', title: handoff.cardholder, detail: handoff.label, back: cardNotice }}
           onDone={() => setHandoff(null)} />}
         <details className="sharing-details">
