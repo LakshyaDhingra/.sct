@@ -34,6 +34,9 @@ const relayMark = [
   'M17.9063 4.49871C18.2389 4.49971 18.7421 4.55476 19.3575 4.62207C21.5792 4.86508 25.2622 5.26792 27.6472 3.86395L24.4884 7.0976L24.4958 7.10383L22.5075 9.12462C19.2166 6.51328 14.4502 6.74618 11.4226 9.82332C8.3949 12.9005 8.16574 17.7448 10.7351 21.0894L0 32C5.36996 25.8095 6.44651 22.4677 6.1998 16.683C5.97163 13.5035 7.05355 10.2451 9.44557 7.81402C11.7699 5.45167 14.8629 4.34657 17.9063 4.49871Z',
   'M24.7486 16C24.7486 20.0687 21.5033 23.367 17.5 23.367C13.4967 23.367 10.2514 20.0687 10.2514 16C10.2514 11.9313 13.4967 8.63292 17.5 8.63292C21.5033 8.63292 24.7486 11.9313 24.7486 16ZM17.5 21.6C20.5752 21.6 23.0682 19.0928 23.0682 16C23.0682 12.9072 20.5752 10.4 17.5 10.4C14.4248 10.4 11.9318 12.9072 11.9318 16C11.9318 19.0928 14.4248 21.6 17.5 21.6Z'
 ]
+// One audio context for every swoosh. The app creates it at the first relay send.
+let audio: AudioContext | undefined
+
 // Radii of the AirDrop rings, from the center outward.
 const ringRadii = [36, 72, 108, 144, 180]
 
@@ -190,7 +193,7 @@ function choreograph(stage: HandoffStage, previous: HandoffStage | null, via: Ha
     // The previous stage was reverted, so the object starts again from the last prepare frame.
     if (previous === 'prepare') utils.set('.handoff-object', stillFrame('prepare', via))
     else appear(timeline)
-    travel(timeline, 0.5, 14, 800)
+    travel(timeline, 0.5, 14, 800, via === 'relay')
     if (via === 'relay') {
       consume(timeline)
       timeline.call(() => { spinHub() })
@@ -216,7 +219,7 @@ function choreograph(stage: HandoffStage, previous: HandoffStage | null, via: Ha
     // The hub held the object in the queue. It sends the object out to the recipient.
     const timeline = createTimeline({ onComplete: close })
     emit(timeline)
-    travel(timeline, 1, 0, 800)
+    travel(timeline, 1, 0, 800, true)
     land(timeline)
     return
   }
@@ -243,10 +246,11 @@ function appear(timeline: Timeline): void {
 }
 
 // The object lifts, flips one full turn on its vertical axis along an arc, and levels out at the target.
-// A flight to the middle is shorter than a flight across the whole stage.
-function travel(timeline: Timeline, to: number, tilt: number, duration = 1100): void {
+// A flight to the middle is shorter than a flight across the whole stage. A relay send plays a swoosh during the flight.
+function travel(timeline: Timeline, to: number, tilt: number, duration = 1100, sound = false): void {
+  timeline.add('.handoff-object', { '--y': -16, '--r': -3, duration: 260, ease: 'outQuad' })
+  if (sound) timeline.call(() => { swoosh(duration / 1000) })
   timeline
-    .add('.handoff-object', { '--y': -16, '--r': -3, duration: 260, ease: 'outQuad' })
     .add('.handoff-object', {
       '--x': to,
       '--y': [{ to: -46, ease: 'outQuad' }, { to: -14, ease: 'inQuad' }],
@@ -258,6 +262,32 @@ function travel(timeline: Timeline, to: number, tilt: number, duration = 1100): 
     })
     // The flip ends at 360 degrees. Reset it to 0 so the next rotation starts from the front.
     .set('.handoff-object', { '--ry': 0 })
+}
+
+// A swoosh from white noise: a band-pass filter sweeps up and back down while the volume rises and falls.
+// The sound is made at run time, so no audio file ships with the app.
+function swoosh(seconds: number): void {
+  audio ??= new AudioContext()
+  void audio.resume()
+  const now = audio.currentTime
+  const noise = audio.createBuffer(1, Math.ceil(audio.sampleRate * seconds), audio.sampleRate)
+  const samples = noise.getChannelData(0)
+  for (let index = 0; index < samples.length; index++) samples[index] = Math.random() * 2 - 1
+  const source = audio.createBufferSource()
+  source.buffer = noise
+  const filter = audio.createBiquadFilter()
+  filter.type = 'bandpass'
+  filter.Q.value = 1.4
+  filter.frequency.setValueAtTime(320, now)
+  filter.frequency.exponentialRampToValueAtTime(2800, now + seconds * 0.6)
+  filter.frequency.exponentialRampToValueAtTime(700, now + seconds)
+  const volume = audio.createGain()
+  volume.gain.setValueAtTime(0.0001, now)
+  volume.gain.exponentialRampToValueAtTime(0.3, now + seconds * 0.45)
+  volume.gain.exponentialRampToValueAtTime(0.0001, now + seconds)
+  source.connect(filter).connect(volume).connect(audio.destination)
+  source.start(now)
+  source.stop(now + seconds)
 }
 
 // The relay hub takes the object in: the object shrinks into the center, and the hub swells.
