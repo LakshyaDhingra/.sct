@@ -202,7 +202,6 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .relay-code { margin-top: 20px; border-top: 1px solid var(--color-rule); padding-top: 16px; }
 .relay-code > p { margin: 0; color: var(--color-accent); font-size: 18px; font-stretch: var(--stretch-display); overflow-wrap: anywhere; }
 .relay-code > button { margin-top: 16px; }
-.relay-deadlines { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .relay-activity { margin-top: 36px; }
 .relay-activity .group-heading { align-items: center; margin-bottom: 16px; }
 .relay-activity .group-heading h2 { margin: 0; }
@@ -233,7 +232,6 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
   .relay-identity { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .relay-peer-heading { align-items: flex-start; flex-direction: column; }
   .relay-inbox-heading { flex-direction: column; }
-  .relay-deadlines { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .relay-activity thead { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
   .relay-activity tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--color-rule); padding-block: 12px; }
   .relay-activity td { border: 0; padding: 8px 12px 8px 0; }

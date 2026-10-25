@@ -108,7 +108,7 @@ The desktop app connects to the relay when it starts. A command-line process doe
 - After each connection, the app registers the public keys of its AirDrop device card with `registerDevice`.
   The same device keys serve AirDrop and the relay.
 - The app subscribes to `my_inbox`, `my_sent`, and `my_peers`.
-- After a lost connection, the client reconnects and restores the subscriptions.
+- After a lost connection, the client reconnects, restores the subscriptions, and registers the device again. A relay data reset deletes the device rows.
   If the client stops, the app makes a new connection after 1 s, then up to 30 s between attempts.
 - The app saves the view rows in `relay/cache-<server hash>.sct` in the app data folder.
   The app encrypts the file with AES-256-GCM. The key is in `.sct-relay` under `cache/<server>/<database>`.
@@ -142,6 +142,7 @@ Do these steps on the **Relay** tab of **Sharing**:
 3. Both apps show the pending pair and the same pairing code.
    The code comes from both relay identities and both device public keys.
 4. The users compare the codes, for example in person or on a call.
+   Device B shows the code for a pending request even when it saved the keys of device A before, for example after a relay data reset.
 5. If the codes are the same, each user selects **I compared this code on both Macs**, then **Confirm relay device**.
    Each app saves the public keys of the other device.
    The app of device B also calls `confirmPair`. On the relay, only the device that did not send the request can accept the pair.
@@ -169,9 +170,11 @@ The **Relay** tab uses the preload operations `requestRelayPair`, `confirmRelayP
 ## Relay delivery
 
 On the **Relay** tab, the sender selects a source project, a verified relay recipient, and secrets.
-The sender sets **Deliver before** and, as an option, **Access expires**.
+As an option, the sender sets **Access expires**.
 The **Allow command injection only** option is on by default. Then the sender selects **Queue encrypted transfer**.
 The main process reads the selected values and creates one signed encrypted transfer.
+The main process sets the delivery deadline to 7 days minus 1 minute after the queue time.
+The 1-minute margin lets the relay accept a sender clock that is slightly ahead of the relay clock.
 It saves the ciphertext in an encrypted local outbox before publication.
 When the app has a relay connection, it publishes the transfer immediately. Otherwise, it publishes after the next connection.
 

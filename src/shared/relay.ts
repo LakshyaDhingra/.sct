@@ -53,13 +53,17 @@ export interface RelaySentItem {
   error: string | null
 }
 
-export interface RelayTransferInput {
+export interface RelayQueueInput {
   projectId: string
   secretIds: string[]
   recipient: string
-  deliverBy: number
   accessExpiresAt: number | null
   injectionOnly: boolean
+}
+
+// The main process sets the delivery deadline when it queues the transfer.
+export interface RelayTransferInput extends RelayQueueInput {
+  deliverBy: number
 }
 
 export interface RelayAcceptInput {
@@ -88,6 +92,6 @@ export interface RelayAPI {
   confirmRelayPair: (input: ConfirmRelayPairInput) => Promise<void>
   removeRelayPair: (pairId: string) => Promise<void>
   // Returns the message ID of the queued transfer.
-  queueRelayTransfer: (input: RelayTransferInput) => Promise<string>
+  queueRelayTransfer: (input: RelayQueueInput) => Promise<string>
   acceptRelayTransfer: (input: RelayAcceptInput) => Promise<SecretMetadata[]>
 }
