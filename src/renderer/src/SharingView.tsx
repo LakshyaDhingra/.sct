@@ -3,21 +3,23 @@ import type { FormEvent } from 'react'
 import type { Project } from '../../shared/projects'
 import type { SecretMetadata } from '../../shared/secrets'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../../shared/sharing'
-import type { RelayInboxItem, RelayPeer, RelaySentItem, RelayState, RelayTaskDecision, RelayTaskItem } from '../../shared/relay'
+import { relayInboxFinished, relaySentFinished, relayTaskFinished } from '../../shared/relay'
+import type { RelayActivityKey, RelayInboxItem, RelayPeer, RelaySentItem, RelayState, RelayTaskDecision, RelayTaskItem } from '../../shared/relay'
 import { errorText, StatusLine, useOperation } from './operation'
 import { HandoffModal, Scramble } from './SharingMotion'
 import type { HandoffStage } from './SharingMotion'
-import type { Loaded, Run, SharingTab, UpdateSecrets } from './types'
+import type { Loaded, Run, SharingTab, UpdateProjects, UpdateSecrets } from './types'
 
 interface SharingViewProps {
   projectId?: string
   tab?: SharingTab
   projects: Loaded<Project[]>
   secrets: Loaded<SecretMetadata[]>
+  updateProjects: UpdateProjects
   updateSecrets: UpdateSecrets
 }
 
-export function SharingView({ projectId, tab, projects, secrets, updateSecrets }: SharingViewProps) {
+export function SharingView({ projectId, tab, projects, secrets, updateProjects, updateSecrets }: SharingViewProps) {
   const [sharing, setSharing] = useState<Loaded<SharingState & { location: string }>>({ state: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const [receipt, setReceipt] = useState<Receipt | null>(null)
@@ -86,7 +88,7 @@ export function SharingView({ projectId, tab, projects, secrets, updateSecrets }
           </div>
           <div hidden={activeTab !== 'relay'}>
             <RelaySharing projectId={projectId} active={activeTab === 'relay'} projects={projects} secrets={secrets}
-              busy={operation.busy} run={operation.run} updateSecrets={updateSecrets} />
+              busy={operation.busy} run={operation.run} updateProjects={updateProjects} updateSecrets={updateSecrets} />
           </div>
         </>
       )}
@@ -158,18 +160,22 @@ function SharingTabs({ activeTab, projectId, canShare }: { activeTab: SharingTab
   )
 }
 
-function RelaySharing({ projectId, active, projects, secrets, busy, run, updateSecrets }: {
+function RelaySharing({ projectId, active, projects, secrets, busy, run, updateProjects, updateSecrets }: {
   projectId?: string
   active: boolean
   projects: Loaded<Project[]>
   secrets: Loaded<SecretMetadata[]>
   busy: boolean
   run: Run
+  updateProjects: UpdateProjects
   updateSecrets: UpdateSecrets
 }) {
   const [relay, setRelay] = useState<Loaded<RelayState>>({ state: 'loading' })
   // Inbox rows that were present at the first load, or that already showed an arrival.
   const [seen, setSeen] = useState<Set<string> | null>(null)
+  // The arrival that asks for a destination project after its animation.
+  const [asking, setAsking] = useState<string | null>(null)
+  const [imported, setImported] = useState<ImportedTransfer | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -192,16 +198,73 @@ function RelaySharing({ projectId, active, projects, secrets, busy, run, updateS
   // A dialog inside the hidden tab cannot show, so a new arrival waits until the Relay tab is open.
   const arrival = active && seen ? relay.value.inbox.find((item) => !seen.has(item.messageId)) : undefined
   const sender = arrival ? peerName(relay.value, arrival.sender) : ''
+  // Only a transfer that this Mac can open and has not imported asks for a project.
+  const destination = active ? relay.value.inbox.find((item) => item.messageId === asking && item.state === 'pending') : undefined
   return (
     <>
       {arrival && <HandoffModal key={arrival.messageId} heading={`Receiving from ${sender}`} via="relay" from={sender} to="This Mac"
         stage="received" object={{ shape: 'key', title: 'Encrypted transfer', detail: shortId(arrival.messageId) }}
-        onDone={() => setSeen((current) => new Set([...(current ?? []), arrival.messageId]))} />}
+        onDone={() => {
+          setSeen((current) => new Set([...(current ?? []), arrival.messageId]))
+          setAsking(arrival.messageId)
+        }} />}
+      {destination && projects.state === 'ready' && <RelayImportDialog key={destination.messageId} item={destination}
+        sender={peerName(relay.value, destination.sender)} projects={projects.value} updateProjects={updateProjects}
+        updateSecrets={updateSecrets} onClose={() => setAsking(null)} onImported={(value) => {
+          setAsking(null)
+          setImported(value)
+        }} />}
+      {imported && <HandoffModal heading={`Receiving from ${imported.sender}`} via="relay" from={imported.sender} to={imported.project}
+        stage="arrived" onDone={() => setImported(null)} object={{
+          shape: 'key',
+          title: secretCount(imported.names.length),
+          detail: imported.names.join(' ')
+        }} />}
       <RelayConnection state={relay.value} />
       <RelayPairing state={relay.value} busy={busy} run={run} />
       <RelaySend projectId={projectId} projects={projects} secrets={secrets} state={relay.value} busy={busy} run={run} />
-      <RelayActivity state={relay.value} projects={projects} busy={busy} run={run} updateSecrets={updateSecrets} />
+      <RelayActivity state={relay.value} projects={projects} busy={busy} run={run} updateProjects={updateProjects}
+        updateSecrets={updateSecrets} onImported={setImported} />
     </>
+  )
+}
+
+interface ImportedTransfer {
+  sender: string
+  project: string
+  names: string[]
+}
+
+// After the arrival animation, the recipient chooses a project or makes one. The import sends the receipt,
+// so the sender shows the transfer as sent until the recipient imports it.
+function RelayImportDialog({ item, sender, projects, updateProjects, updateSecrets, onClose, onImported }: {
+  item: RelayInboxItem
+  sender: string
+  projects: Project[]
+  updateProjects: UpdateProjects
+  updateSecrets: UpdateSecrets
+  onClose: () => void
+  onImported: (imported: ImportedTransfer) => void
+}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const operation = useOperation()
+
+  useEffect(() => {
+    const element = dialog.current
+    if (element && !element.open) element.showModal()
+  }, [])
+
+  return (
+    <dialog ref={dialog} className="import-dialog" aria-labelledby="import-heading"
+      onCancel={(event) => { if (operation.busy) event.preventDefault() }} onClose={onClose}>
+      <h2 id="import-heading">Save secrets from {sender}</h2>
+      <p>{item.projectName}: {item.secretNames.join(', ')}</p>
+      <p className="field-help">Choose a project on this Mac or make a new one. The transfer stays pending until you import it.</p>
+      <StatusLine status={operation.status} />
+      <RelayImportForm item={item} sender={sender} projects={projects} busy={operation.busy} run={operation.run}
+        updateProjects={updateProjects} updateSecrets={updateSecrets} onImported={onImported}
+        onLater={() => dialog.current?.close()} />
+    </dialog>
   )
 }
 
@@ -273,8 +336,8 @@ function RelayPairing({ state, busy, run }: { state: RelayState; busy: boolean; 
                 })
               }}>Remove</button>
             </div>
-            {/* Saved keys can outlive a relay pair, so a pending request from the other device still needs confirmation. */}
-            {peer.code && (peer.trust !== 'verified' || (peer.status === 'Pending' && !peer.requestedByMe)) && <div className="relay-code">
+            {/* Saved keys can outlive a relay pair, so both devices show the code again while the pair is pending. */}
+            {peer.code && (peer.trust !== 'verified' || peer.status === 'Pending') && <div className="relay-code">
               <p aria-label={`Pairing code for ${peer.name}`}>{peer.code}</p>
               <label className="check-field">
                 <input type="checkbox" checked={compared.has(peer.pairId)} onChange={(event) => setCompared((current) => {
@@ -404,12 +467,14 @@ function RelayHandoff({ handoff, sent, onDone }: { handoff: RelayHandoffState; s
   )
 }
 
-function RelayActivity({ state, projects, busy, run, updateSecrets }: {
+function RelayActivity({ state, projects, busy, run, updateProjects, updateSecrets, onImported }: {
   state: RelayState
   projects: Loaded<Project[]>
   busy: boolean
   run: Run
+  updateProjects: UpdateProjects
   updateSecrets: UpdateSecrets
+  onImported: (imported: ImportedTransfer) => void
 }) {
   const cached = state.connection !== 'connected'
   return (
@@ -424,7 +489,8 @@ function RelayActivity({ state, projects, busy, run, updateSecrets }: {
         {state.sent.length > 0 && <table>
           <caption>Sent transfers</caption>
           <thead><tr><th scope="col">Transfer</th><th scope="col">Recipient</th><th scope="col">Delivery</th>
-            <th scope="col">Delivery deadline</th><th scope="col">Recipient access</th><th scope="col">Remote demo</th></tr></thead>
+            <th scope="col">Delivery deadline</th><th scope="col">Recipient access</th><th scope="col">Remote demo</th>
+            <th scope="col"><span className="sr-only">Delete</span></th></tr></thead>
           <tbody>{state.sent.map((item) => <RelayActivityRow key={`${item.messageId}/${item.recipient}`} item={item} state={state}
             busy={busy} run={run} />)}</tbody>
         </table>}
@@ -435,31 +501,26 @@ function RelayActivity({ state, projects, busy, run, updateSecrets }: {
         {state.inbox.length > 0 && <div className="relay-inbox">
           <h3>Received transfers</h3>
           <ul>{state.inbox.map((item) => <RelayInboxTransfer key={item.messageId} item={item} state={state}
-            projects={projects} busy={busy} run={run} updateSecrets={updateSecrets} />)}</ul>
+            projects={projects} busy={busy} run={run} updateProjects={updateProjects} updateSecrets={updateSecrets}
+            onImported={onImported} />)}</ul>
         </div>}
       </>}
     </section>
   )
 }
 
-function RelayInboxTransfer({ item, state, projects, busy, run, updateSecrets }: {
+function RelayInboxTransfer({ item, state, projects, busy, run, updateProjects, updateSecrets, onImported }: {
   item: RelayInboxItem
   state: RelayState
   projects: Loaded<Project[]>
   busy: boolean
   run: Run
+  updateProjects: UpdateProjects
   updateSecrets: UpdateSecrets
+  onImported: (imported: ImportedTransfer) => void
 }) {
-  // The import replaces the form with the receipt text, so the modal state lives here and not in the form.
-  const [imported, setImported] = useState<{ project: string; names: string[] } | null>(null)
   const sender = peerName(state, item.sender)
   return <li>
-    {imported && <HandoffModal heading={`Receiving from ${sender}`} via="relay" from={sender} to={imported.project}
-      stage="arrived" onDone={() => setImported(null)} object={{
-        shape: 'key',
-        title: secretCount(imported.names.length),
-        detail: imported.names.join(' ')
-      }} />}
     <div className="relay-inbox-heading">
       <div>
         <h4>{item.projectName ?? 'Unreadable transfer'}</h4>
@@ -470,43 +531,80 @@ function RelayInboxTransfer({ item, state, projects, busy, run, updateSecrets }:
     {item.secretNames.length > 0 && <p>{item.secretNames.join(', ')}</p>}
     <p className="field-help">Deliver before {formatTime(item.deliverBy)}. {grantText(item)}</p>
     {item.error && <p className="error" role="alert">{item.error}</p>}
-    <RelayInboxAction item={item} projects={projects} busy={busy} run={run} updateSecrets={updateSecrets} onImported={setImported} />
+    <RelayInboxAction item={item} sender={sender} projects={projects} busy={busy} run={run} updateProjects={updateProjects}
+      updateSecrets={updateSecrets} onImported={onImported} />
+    {relayInboxFinished(item) && <div className="form-actions">
+      <DeleteActivity activity={{ kind: 'inbox', messageId: item.messageId, peer: item.sender }}
+        label={`Delete transfer ${shortId(item.messageId)}`} busy={busy} run={run} />
+    </div>}
   </li>
 }
 
-function RelayInboxAction({ item, projects, busy, run, updateSecrets, onImported }: {
+function RelayInboxAction({ item, sender, projects, busy, run, updateProjects, updateSecrets, onImported }: {
   item: RelayInboxItem
+  sender: string
   projects: Loaded<Project[]>
   busy: boolean
   run: Run
+  updateProjects: UpdateProjects
   updateSecrets: UpdateSecrets
-  onImported: (imported: { project: string; names: string[] }) => void
+  onImported: (imported: ImportedTransfer) => void
 }) {
   if (item.state === 'received' && item.receivedAt) return <p className="field-help">
     Imported {formatTime(item.receivedAt)}. The receipt confirms durable delivery.
   </p>
   if (item.state !== 'pending' || projects.state !== 'ready') return null
-  if (projects.value.length === 0) return <p><a href="#/">Add a project</a> before you import this transfer.</p>
-  return <RelayImportForm item={item} projects={projects.value} busy={busy} run={run} updateSecrets={updateSecrets} onImported={onImported} />
+  return <RelayImportForm item={item} sender={sender} projects={projects.value} busy={busy} run={run} updateProjects={updateProjects}
+    updateSecrets={updateSecrets} onImported={onImported} />
 }
 
-function RelayImportForm({ item, projects, busy, run, updateSecrets, onImported }: {
+// Project IDs are UUIDs, so this select value cannot match a project.
+const newProject = 'new'
+
+function RelayImportForm({ item, sender, projects, busy, run, updateProjects, updateSecrets, onImported, onLater }: {
   item: RelayInboxItem
+  sender: string
   projects: Project[]
   busy: boolean
   run: Run
+  updateProjects: UpdateProjects
   updateSecrets: UpdateSecrets
-  onImported: (imported: { project: string; names: string[] }) => void
+  onImported: (imported: ImportedTransfer) => void
+  onLater?: () => void
 }) {
-  const [destination, setDestination] = useState(item.destinationProjectId ?? (projects.length === 1 ? projects[0]?.id ?? '' : ''))
+  const [destination, setDestination] = useState(item.destinationProjectId
+    ?? (projects.length === 0 ? newProject : projects.length === 1 ? projects[0]?.id ?? '' : ''))
+  const [name, setName] = useState(item.projectName ?? '')
+  const [directory, setDirectory] = useState('')
+  const creating = destination === newProject
 
   async function accept(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     await run('Verifying and importing the relay transfer…', async () => {
-      const saved = await window.sct.acceptRelayTransfer({ messageId: item.messageId, projectId: destination })
+      const project = creating ? await addProject() : projects.find((saved) => saved.id === destination)
+      if (!project) throw new Error('Choose a destination project.')
+      const saved = await window.sct.acceptRelayTransfer({ messageId: item.messageId, projectId: project.id })
       updateSecrets((current) => [...current.filter((secret) => !saved.some((added) => added.id === secret.id)), ...saved])
-      onImported({ project: projects.find((project) => project.id === destination)?.name ?? 'the selected project', names: saved.map((secret) => secret.name) })
+      onImported({ sender, project: project.name, names: saved.map((secret) => secret.name) })
       return `Imported ${saved.length} ${saved.length === 1 ? 'secret' : 'secrets'}. The encrypted receipt is saved.`
+    })
+  }
+
+  // A failed import keeps the new project selected, so a retry does not add the project again.
+  async function addProject(): Promise<Project> {
+    const project = await window.sct.addProject({ name, directory })
+    updateProjects((current) => [...current, project])
+    setDestination(project.id)
+    return project
+  }
+
+  async function browse() {
+    await run('Opening the folder picker…', async () => {
+      const selected = await window.sct.pickDirectory()
+      if (!selected) return ''
+      setDirectory(selected)
+      if (!name.trim()) setName(selected.split('/').filter(Boolean).at(-1) ?? 'Project')
+      return ''
     })
   }
 
@@ -517,12 +615,37 @@ function RelayImportForm({ item, projects, busy, run, updateSecrets, onImported 
           onChange={(event) => setDestination(event.target.value)}>
           <option value="">Choose a project</option>
           {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          <option value={newProject}>New project</option>
         </select>
+        {creating && <>
+          <label htmlFor={`relay-project-name-${item.messageId}`}>Project name</label>
+          <input id={`relay-project-name-${item.messageId}`} value={name} maxLength={100} required placeholder="My project"
+            onChange={(event) => setName(event.target.value)} />
+          <label htmlFor={`relay-project-directory-${item.messageId}`}>Folder path</label>
+          <div className="folder-field">
+            <input id={`relay-project-directory-${item.messageId}`} value={directory} maxLength={4096} required
+              placeholder="/Users/you/projects/my-project" onChange={(event) => setDirectory(event.target.value)} />
+            <button type="button" className="secondary" onClick={() => { void browse() }}>Choose folder…</button>
+          </div>
+        </>}
         <div className="form-actions">
-          <button type="submit" disabled={busy || !destination}>Import and send receipt</button>
+          {onLater && <button type="button" className="secondary" onClick={onLater}>Later</button>}
+          <button type="submit" disabled={busy || !destination || (creating && (!name.trim() || !directory.trim()))}>
+            Import and send receipt
+          </button>
         </div>
       </fieldset>
     </form>
+}
+
+// Deletes a finished row from this list only. The local record stays, so duplicate checks and grants still work.
+function DeleteActivity({ activity, label, busy, run }: { activity: RelayActivityKey; label: string; busy: boolean; run: Run }) {
+  return <button type="button" className="secondary" aria-label={label} disabled={busy} onClick={() => {
+    void run('Deleting the activity…', async () => {
+      await window.sct.hideRelayActivity(activity)
+      return 'The activity was deleted from this list.'
+    })
+  }}>Delete</button>
 }
 
 function grantText(item: RelayInboxItem): string {
@@ -565,6 +688,10 @@ function RelayTask({ task, state, busy, run }: { task: RelayTaskItem; state: Rel
           onClick={() => decide('report', 'Saving the review…', 'The uncertain result is queued for the sender.')}>Send uncertain result</button>
       </div>
     </>}
+    {relayTaskFinished(task) && <div className="form-actions">
+      <DeleteActivity activity={{ kind: 'task', messageId: task.messageId, peer: task.peer }}
+        label={`Delete task ${shortId(task.messageId)}`} busy={busy} run={run} />
+    </div>}
   </li>
 }
 
@@ -596,6 +723,8 @@ function RelayActivityRow({ item, state, busy, run }: { item: RelaySentItem; sta
         return `The task is queued. ${peerName(state, item.recipient)} must approve it on that Mac.`
       })
     }}>Request run</button> : 'Not available'}</td>
+    <td>{relaySentFinished(item) && <DeleteActivity activity={{ kind: 'sent', messageId: item.messageId, peer: item.recipient }}
+      label={`Delete transfer ${shortId(item.messageId)}`} busy={busy} run={run} />}</td>
   </tr>
 }
 

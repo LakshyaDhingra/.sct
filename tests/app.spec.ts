@@ -39,7 +39,7 @@ test('adds existing folders offline and restores projects after restart', async 
     expect(await page.evaluate(() => Object.keys(window.sct).sort()))
       .toEqual(['acceptRelayTransfer', 'addProject', 'addSecret', 'chooseVaultLocation', 'confirmRelayPair', 'confirmSharingPeer', 'createMockCard',
         'deleteProject', 'deleteSecret', 'dismissTransfer', 'getAgentRequests', 'getRelayState', 'getSharingState',
-        'getVaultLocation', 'importTransfer', 'listProjects', 'listSecrets', 'onAgentChanged', 'onRelayChanged',
+        'getVaultLocation', 'hideRelayActivity', 'importTransfer', 'listProjects', 'listSecrets', 'onAgentChanged', 'onRelayChanged',
         'onSharingChanged', 'pickDirectory', 'pickSharingPeer', 'pickTransfer', 'queueRelayTask', 'queueRelayTransfer', 'removeRelayPair', 'renameProject',
         'requestRelayPair', 'respondRelayTask', 'respondToAgent', 'shareDeviceCard', 'shareMockCard', 'shareSecrets', 'updateSecret'])
 

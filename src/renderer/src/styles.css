@@ -134,7 +134,7 @@ footer { color: var(--color-muted); font-size: 10px; margin-top: 32px; }
 .sharing-section > .panel { margin-bottom: 16px; }
 .sharing-section > .panel > h3 { margin-bottom: 12px; }
 .sharing-section p { font-size: 15px; }
-.sharing-section select, .panel select { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--color-rule-2); border-radius: 0; background: var(--color-paper); color: var(--color-ink); font: inherit; font-size: 15px; }
+.sharing-section select, .panel select, .relay-inbox select, .import-dialog select { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--color-rule-2); border-radius: 0; background: var(--color-paper); color: var(--color-ink); font: inherit; font-size: 15px; }
 select:hover { border-color: var(--color-ink-2); }
 select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; }
 select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55; }
@@ -246,8 +246,11 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 
 /* The card moves with transform only. --x runs from 0 (sender slot) to 1 (recipient slot) across the stage width. */
 .handoff-dialog { width: 100%; max-width: 760px; border: 1px solid var(--color-rule-2); border-radius: 0; background: var(--color-paper-2); color: var(--color-ink); padding: 28px; }
-.handoff-dialog:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; }
-.handoff-dialog::backdrop { background: var(--color-scrim); }
+.handoff-dialog:focus-visible, .import-dialog:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; }
+.handoff-dialog::backdrop, .import-dialog::backdrop { background: var(--color-scrim); }
+.import-dialog { width: 100%; max-width: 560px; border: 1px solid var(--color-rule-2); border-radius: 0; background: var(--color-paper-2); color: var(--color-ink); padding: 28px; overflow-wrap: anywhere; }
+.import-dialog h2 { margin: 0 0 8px; }
+.import-dialog > p { margin: 0 0 12px; }
 .handoff-dialog { overflow: hidden; }
 .handoff-dialog h2 { margin: 0 0 8px; }
 .handoff-caption { min-height: 1lh; margin: 0; color: var(--color-ink-2); font-size: 15px; }
@@ -304,5 +307,5 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .handoff-back-text { margin-top: auto; padding-inline: 12px; color: var(--color-ink-2); font-size: 9px; }
 @media (max-width: 700px) {
   .handoff { --card-w: 128px; --card-h: 81px; --inset: 26px; }
-  .handoff-dialog { padding: 20px; }
+  .handoff-dialog, .import-dialog { padding: 20px; }
 }

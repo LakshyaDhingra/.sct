@@ -73,7 +73,7 @@ function DesktopApp({ route }: { route: Exclude<Route, { view: 'agent' }> }) {
         {route.view === 'cards' && <CardsView />}
         {route.view === 'sharing' && (
           <SharingView key={route.projectId ?? 'sharing'} projectId={route.projectId}
-            tab={route.tab} projects={projects} secrets={secrets} updateSecrets={updateSecrets} />
+            tab={route.tab} projects={projects} secrets={secrets} updateProjects={updateProjects} updateSecrets={updateSecrets} />
         )}
       </main>
     </div>

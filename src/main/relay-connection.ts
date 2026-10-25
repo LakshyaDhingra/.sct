@@ -15,8 +15,9 @@ import type { DeviceCard } from './transfer'
 import type { SecretMetadata } from '../shared/secrets'
 import type { GrantCleanupOutcome } from './vault'
 import type { RelayMessageKind, RelayTaskOutcome } from '../shared/envelope'
-import type { RelayAcceptInput, RelayConnection, RelayDeliveryState, RelayInboxItem, RelayPeer, RelayQueueInput, RelaySentItem,
-  RelayState, RelayTaskDecision, RelayTaskItem } from '../shared/relay'
+import { relayInboxFinished, relaySentFinished, relayTaskFinished } from '../shared/relay'
+import type { RelayAcceptInput, RelayActivityKey, RelayConnection, RelayDeliveryState, RelayInboxItem, RelayPeer, RelayQueueInput,
+  RelaySentItem, RelayState, RelayTaskDecision, RelayTaskItem } from '../shared/relay'
 
 export interface RelayServer {
   uri: string
@@ -199,7 +200,7 @@ const pendingChanged: PendingResult = { changed: true, failed: false }
 const pendingFailed: PendingResult = { changed: true, failed: true }
 // A remote task waits up to this long for local approval.
 const taskApprovalPeriod = 24 * 60 * 60 * 1000
-type SealedName = 'cache' | 'peers' | 'outbox' | 'received' | 'notices' | 'tasks' | 'results'
+type SealedName = 'cache' | 'peers' | 'outbox' | 'received' | 'notices' | 'tasks' | 'results' | 'hidden'
 
 // SCT_RELAY=off turns the relay off. SCT_RELAY=<server URL>/<database> selects another relay, such as a local test server.
 export function relayServer(setting = process.env.SCT_RELAY): RelayServer | undefined {
@@ -223,6 +224,8 @@ export class Relay {
   // Inbox messages that fail to open stay unacknowledged. The window shows the reason.
   private messageErrors = new Map<string, string>()
   private pins: Pin[] = []
+  // Keys of finished activity rows that the user deleted from the list. The records stay.
+  private hidden: string[] = []
   private status: RelayConnection
   private registered = false
   private error: string | null = null
@@ -273,7 +276,9 @@ export class Relay {
   async state(): Promise<RelayState> {
     // The desktop app can change the files at any time, so an agent session reads them again.
     if (!this.writer && this.server) await this.load()
-    const local = await this.deviceCard().catch(() => undefined)
+    const [local, { inbox, sent, tasks }] = await Promise.all([this.deviceCard().catch(() => undefined), this.activity()])
+    // A hidden row that becomes active again shows again.
+    const hidden = new Set(this.hidden)
     return {
       connection: this.status,
       identity: this.cache.identity,
@@ -281,10 +286,31 @@ export class Relay {
       error: this.error,
       updatedAt: this.cache.updatedAt,
       peers: this.cache.peers.map((peer) => describePeer(peer, local, this.cache.identity, this.pins)),
-      inbox: await this.inboxItems(),
-      sent: await this.sentItems(),
-      tasks: await this.taskItems()
+      inbox: inbox.filter((item) => !relayInboxFinished(item)
+        || !hidden.has(activityKey({ kind: 'inbox', messageId: item.messageId, peer: item.sender }))),
+      sent: sent.filter((item) => !relaySentFinished(item)
+        || !hidden.has(activityKey({ kind: 'sent', messageId: item.messageId, peer: item.recipient }))),
+      tasks: tasks.filter((item) => !relayTaskFinished(item)
+        || !hidden.has(activityKey({ kind: 'task', messageId: item.messageId, peer: item.peer })))
     }
+  }
+
+  // Deletes one finished row from the activity list. The records stay, so duplicate checks, grants, and cleanup notices still work.
+  hideActivity(input: unknown): Promise<void> {
+    return this.serialize(async () => {
+      this.requireWriter()
+      const key = activityKey(requireActivityKey(input))
+      const rows = activityRows(await this.activity())
+      if (!rows.some((row) => row.key === key && row.finished)) {
+        throw new Error('Only finished delivery activity can be deleted. Refresh the list and try again.')
+      }
+      // Keys of rows that no longer exist go away, so the list does not grow.
+      const current = new Set(rows.map((row) => row.key))
+      const hidden = [...this.hidden.filter((saved) => saved !== key && current.has(saved)), key]
+      await this.writeSealed('hidden', { keys: hidden })
+      this.hidden = hidden
+      this.changed()
+    })
   }
 
   queueGrantExpiryNotifications(outcomes: GrantCleanupOutcome[]): Promise<void> {
@@ -720,6 +746,11 @@ export class Relay {
     this.changed()
   }
 
+  private async activity(): Promise<{ inbox: RelayInboxItem[]; sent: RelaySentItem[]; tasks: RelayTaskItem[] }> {
+    const [inbox, sent, tasks] = await Promise.all([this.inboxItems(), this.sentItems(), this.taskItems()])
+    return { inbox, sent, tasks }
+  }
+
   private async sentItems(now = Date.now()): Promise<RelaySentItem[]> {
     const remote = new Map(this.cache.sent.map((item) => [`${item.messageId}/${item.recipient}`, item]))
     const notices = new Map(this.cache.expiryNotices.map((item) => [`${item.correlationId}/${item.sender}`, item]))
@@ -1050,7 +1081,7 @@ export class Relay {
   }
 
   private async load(): Promise<void> {
-    const [outbox, received, notices, tasks, results, pins, requests] = await Promise.all([
+    const [outbox, received, notices, tasks, results, pins, hidden, requests] = await Promise.all([
       this.readSealed<{ transfers: OutboundTransfer[] }>('outbox', { transfers: [] }),
       this.readSealed<{ transfers: ReceivedTransfer[] }>('received', { transfers: [] }),
       this.readSealed<{ notices: OutboundExpiryNotice[] }>('notices', { notices: [] }),
@@ -1058,6 +1089,8 @@ export class Relay {
       this.readSealed<{ results: ReceivedResult[] }>('results', { results: [] }),
       // An unreadable list fails closed: every peer needs a new code comparison.
       this.readSealed<{ pins: Pin[] }>('peers', { pins: [] }),
+      // An unreadable list shows every row again.
+      this.readSealed<{ keys: string[] }>('hidden', { keys: [] }),
       this.readRequests()
     ])
     // Files from earlier versions contain transfers only.
@@ -1070,6 +1103,7 @@ export class Relay {
     this.tasks = tasks.tasks
     this.results = results.results
     this.pins = pins.pins
+    this.hidden = hidden.keys
     // The desktop app keeps the import error of each request. An agent session shows the request as queued.
     this.requests = requests.map((request) => ({ request, error: this.requests.find((item) => item.request.id === request.id)?.error ?? null }))
   }
@@ -1351,6 +1385,28 @@ function peerCard(peer: CachedPeer): DeviceCard | undefined {
   } catch {
     return undefined
   }
+}
+
+function activityRows({ inbox, sent, tasks }: { inbox: RelayInboxItem[]; sent: RelaySentItem[]; tasks: RelayTaskItem[] }) {
+  return [
+    ...inbox.map((item) => ({ key: activityKey({ kind: 'inbox', messageId: item.messageId, peer: item.sender }), finished: relayInboxFinished(item) })),
+    ...sent.map((item) => ({ key: activityKey({ kind: 'sent', messageId: item.messageId, peer: item.recipient }), finished: relaySentFinished(item) })),
+    ...tasks.map((item) => ({ key: activityKey({ kind: 'task', messageId: item.messageId, peer: item.peer }), finished: relayTaskFinished(item) }))
+  ]
+}
+
+function activityKey({ kind, messageId, peer }: RelayActivityKey): string {
+  return `${kind}/${messageId}/${peer}`
+}
+
+// The caller checks that the key matches a finished row, so this check needs only the field types.
+function requireActivityKey(input: unknown): RelayActivityKey {
+  if (typeof input !== 'object' || input === null || !('kind' in input) || !('messageId' in input) || !('peer' in input) ||
+    (input.kind !== 'inbox' && input.kind !== 'sent' && input.kind !== 'task') ||
+    typeof input.messageId !== 'string' || typeof input.peer !== 'string') {
+    throw new Error('Select a delivery activity row.')
+  }
+  return { kind: input.kind, messageId: input.messageId, peer: input.peer }
 }
 
 function requireConfirmation(input: unknown): { pairId: string; code: string } {

@@ -108,6 +108,27 @@ export interface RelayTaskDecision {
   decision: 'approve' | 'refuse' | 'report'
 }
 
+// A row of delivery activity: an inbox transfer, a sent transfer, or a task. The peer is the other device.
+export interface RelayActivityKey {
+  kind: 'inbox' | 'sent' | 'task'
+  messageId: string
+  peer: string
+}
+
+// The user can delete only finished rows. A deleted row stays in the local records, so duplicate checks,
+// grants, and cleanup notices continue to work. A row that becomes active again shows again.
+export function relayInboxFinished(item: RelayInboxItem): boolean {
+  return item.state !== 'pending'
+}
+
+export function relaySentFinished(item: RelaySentItem): boolean {
+  return item.state === 'received' || item.state === 'failed' || item.state === 'expired'
+}
+
+export function relayTaskFinished(item: RelayTaskItem): boolean {
+  return ['completed', 'refused', 'expired', 'failed', 'uncertain'].includes(item.state) && !item.reviewRequired
+}
+
 export interface RelayState {
   connection: RelayConnection
   // The relay identity of this device, as a hexadecimal string.
@@ -135,4 +156,5 @@ export interface RelayAPI {
   // The grant ID is the message ID of a received relay transfer to that device. Returns the message ID of the task.
   queueRelayTask: (grantId: string) => Promise<string>
   respondRelayTask: (input: RelayTaskDecision) => Promise<void>
+  hideRelayActivity: (input: RelayActivityKey) => Promise<void>
 }

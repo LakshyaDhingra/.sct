@@ -169,6 +169,7 @@ app.whenReady().then(async () => {
   handle('relay:accept-transfer', (input) => relay.acceptRelayTransfer(input))
   handle('relay:queue-task', (grantId) => relay.queueTask(grantId))
   handle('relay:respond-task', (input) => relay.respondTask(input))
+  handle('relay:hide-activity', (input) => relay.hideActivity(input))
   handle('projects:list', () => projects.list())
   handle('projects:add', (input) => vault.addProject(input))
   handle('projects:rename', (input) => vault.renameProject(input))
