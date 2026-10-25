@@ -16,9 +16,8 @@ It uses Electron, React, and TypeScript. Each Mac keeps its own vault and privat
 | Relay connection, encrypted cache, pairing, and sharing UI | Done |
 | Relay delivery | Done |
 | Relay expiry and two-device security check | Done |
-| Remote agent tasks through the relay | Open: [#33](https://github.com/omavashia2005/.sct/issues/33) |
-| Mock Wallet cards through AirDrop | Built. The iPhone test is open: [#40](https://github.com/omavashia2005/.sct/issues/40) |
-| Post-MVP | Open: [#22](https://github.com/omavashia2005/.sct/issues/22), [#23](https://github.com/omavashia2005/.sct/issues/23) |
+| Remote agent tasks through the relay | Done |
+| Mock Wallet cards through AirDrop | Built. |
 
 See the [implementation order](docs/architecture.md#implementation-order).
 
