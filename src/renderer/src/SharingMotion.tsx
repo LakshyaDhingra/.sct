@@ -8,10 +8,13 @@ const reducedMotion = { reduce: '(prefers-reduced-motion: reduce)' }
 // The modal closes this long after the last movement ends.
 const holdAfterEnd = 1500
 
-// prepare: the main process makes the file. wait: the object waits at the AirDrop picker.
+// prepare: the main process makes the file. wait: the object waits at the AirDrop picker or in the relay queue.
 // handed: the picker closed. macOS reports no delivery, so the object goes through the gate and never lands.
-// arrived: .sct imported a received transfer, so the object lands in the project.
-export type HandoffStage = 'prepare' | 'wait' | 'handed' | 'arrived'
+// delivered: the relay reported that the recipient received the transfer, so the object lands on the recipient.
+// arrived: this Mac received a transfer, so the object lands here.
+export type HandoffStage = 'prepare' | 'wait' | 'handed' | 'delivered' | 'arrived'
+
+export type HandoffRoute = 'airdrop' | 'relay'
 
 // A mock Wallet card travels as a credit card. A device card shows the real device name and fingerprint.
 // Secrets travel as a key.
@@ -31,15 +34,18 @@ const still: Record<HandoffStage, Record<string, number>> = {
   prepare: { '--x': 0, '--y': 0, '--rx': 14, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 },
   wait: { '--x': 0.5, '--y': -14, '--rx': 14, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 },
   handed: { '--x': 0.56, '--y': -14, '--rx': 14, '--ry': 90, '--r': 0, '--s': 0.9, opacity: 0 },
+  delivered: { '--x': 1, '--y': 0, '--rx': 0, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 },
   arrived: { '--x': 1, '--y': 0, '--rx': 0, '--ry': 0, '--r': 0, '--s': 1, opacity: 1 }
 }
 
 // A modal shows an object that travels from the sender to the recipient. It locks while work is in progress
-// and closes by itself after the object passes the AirDrop gate or lands.
-export function HandoffModal({ heading, from, to, stage, object, onDone }: {
+// and closes by itself after the object passes the AirDrop gate or lands. A relay transfer can wait in the
+// queue for a long time, so the user can close the modal while the object waits at the relay gate.
+export function HandoffModal({ heading, from, to, via = 'airdrop', stage, object, onDone }: {
   heading: string
   from: string
   to: string
+  via?: HandoffRoute
   stage: HandoffStage
   object: HandoffObject
   onDone: () => void
@@ -47,7 +53,10 @@ export function HandoffModal({ heading, from, to, stage, object, onDone }: {
   const dialog = useRef<HTMLDialogElement>(null)
   const stageNode = useRef<HTMLDivElement>(null)
   const previous = useRef<HandoffStage | null>(null)
-  const locked = stage === 'prepare' || stage === 'wait'
+  const locked = stage === 'prepare' || (via === 'airdrop' && stage === 'wait')
+  const finished = stage === 'handed' || stage === 'delivered' || stage === 'arrived'
+  // An AirDrop import has no gate. The relay gate stays for relay arrivals.
+  const showGate = via === 'relay' || stage !== 'arrived'
 
   useEffect(() => {
     const element = dialog.current
@@ -61,30 +70,30 @@ export function HandoffModal({ heading, from, to, stage, object, onDone }: {
     const scope = createScope({ root: stageNode, mediaQueries: reducedMotion }).add((self) => {
       if (self?.matches.reduce) {
         utils.set('.handoff-object', still[stage])
-        utils.set('.handoff-note', { opacity: stage === 'handed' || stage === 'arrived' ? 1 : 0 })
-        utils.set('.handoff-slot-to', { opacity: stage === 'arrived' ? 1 : 0.4 })
-        if (!locked) close()
+        utils.set('.handoff-note', { opacity: finished ? 1 : 0 })
+        utils.set('.handoff-slot-to', { opacity: stage === 'delivered' || stage === 'arrived' ? 1 : 0.4 })
+        if (finished) close()
         return
       }
-      choreograph(stage, previous.current, close)
+      choreograph(stage, previous.current, via, close)
     })
     previous.current = stage
     return () => {
       clearTimeout(closing)
       scope.revert()
     }
-  }, [stage, locked])
+  }, [stage, via, finished])
 
   return (
     <dialog ref={dialog} className="handoff-dialog" aria-labelledby="handoff-heading"
       onCancel={(event) => { if (locked) event.preventDefault() }} onClose={onDone}>
       <h2 id="handoff-heading">{heading}</h2>
-      <p className="handoff-caption" role="status">{caption(stage, to)}</p>
+      <p className="handoff-caption" role="status">{caption(stage, via, to)}</p>
       <div ref={stageNode} className="handoff" aria-hidden="true">
         <span className="handoff-slot handoff-slot-from" />
         <span className="handoff-slot handoff-slot-to" />
         <span className="handoff-track"><span className="handoff-flow" /></span>
-        {stage !== 'arrived' && <span className="handoff-gate"><span className="handoff-gate-mark" /></span>}
+        {showGate && <span className="handoff-gate"><span className="handoff-gate-mark" /></span>}
         <div className={`handoff-object handoff-object-${object.shape}`}>
           {object.shape === 'card' ? <>
             <div className="handoff-face handoff-front">
@@ -123,24 +132,34 @@ export function HandoffModal({ heading, from, to, stage, object, onDone }: {
           </>}
         </div>
         <span className="handoff-label handoff-label-from">{from}</span>
-        {stage !== 'arrived' && <span className="handoff-label handoff-label-gate">AirDrop</span>}
+        {showGate && <span className="handoff-label handoff-label-gate">{via === 'relay' ? 'Relay' : 'AirDrop'}</span>}
         <span className="handoff-label handoff-label-to">
           {to}
-          <span className="handoff-note">{stage === 'arrived' ? 'Imported' : 'Sent if you chose it'}</span>
+          <span className="handoff-note">{note(stage, via)}</span>
         </span>
       </div>
+      {!locked && !finished && <div className="form-actions">
+        <button type="button" className="secondary" onClick={() => dialog.current?.close()}>Close</button>
+      </div>}
     </dialog>
   )
 }
 
-function caption(stage: HandoffStage, to: string): string {
-  if (stage === 'prepare') return 'Preparing the file…'
-  if (stage === 'wait') return `Choose ${to} in the AirDrop picker.`
+function caption(stage: HandoffStage, via: HandoffRoute, to: string): string {
+  if (stage === 'prepare') return via === 'relay' ? 'Encrypting the transfer…' : 'Preparing the file…'
+  if (stage === 'wait') return via === 'relay' ? `Queued for ${to}. The key lands when ${to} receives it.` : `Choose ${to} in the AirDrop picker.`
   if (stage === 'handed') return `Sent if you chose ${to}. macOS does not confirm delivery.`
-  return `Imported into ${to}.`
+  if (stage === 'delivered') return `${to} received the transfer.`
+  return via === 'relay' ? 'The encrypted transfer reached this Mac.' : `Imported into ${to}.`
 }
 
-function choreograph(stage: HandoffStage, previous: HandoffStage | null, close: () => void): void {
+function note(stage: HandoffStage, via: HandoffRoute): string {
+  if (stage === 'delivered') return 'Received'
+  if (stage === 'arrived') return via === 'relay' ? 'Received' : 'Imported'
+  return 'Sent if you chose it'
+}
+
+function choreograph(stage: HandoffStage, previous: HandoffStage | null, via: HandoffRoute, close: () => void): void {
   if (stage === 'prepare') {
     appear(createTimeline())
     // The object sways in 3D while the main process signs or encrypts the file.
@@ -171,14 +190,32 @@ function choreograph(stage: HandoffStage, previous: HandoffStage | null, close: 
       .add('.handoff-note', { opacity: [0, 1], translateY: [4, 0], duration: 400, ease: 'outQuad' }, '-=300')
     return
   }
+  if (stage === 'delivered') {
+    // The previous stage was reverted, so the object starts again from the gate.
+    utils.set('.handoff-object', still.wait)
+    utils.set('.handoff-gate-mark', { scaleY: 1 })
+    const timeline = createTimeline({ onComplete: close })
+    travel(timeline, 1, 0)
+    timeline.add('.handoff-gate-mark', { scaleY: [1, 0], duration: 420, ease: 'outQuad' }, '-=900')
+    land(timeline)
+    flow()
+    return
+  }
   const timeline = createTimeline({ onComplete: close })
   appear(timeline)
   travel(timeline, 1, 0)
+  // A relay arrival goes through the relay gate on its way.
+  if (via === 'relay') timeline.add('.handoff-gate-mark', { scaleY: [{ to: 1, duration: 300 }, { to: 0, duration: 400 }], ease: 'outQuad' }, '-=700')
+  land(timeline)
+  flow()
+}
+
+// The object settles into the recipient slot, and the slot and the note light up.
+function land(timeline: Timeline): void {
   timeline
     .add('.handoff-object', { '--y': 0, '--s': [1.04, 1], duration: 420, ease: 'outBack' })
     .add('.handoff-slot-to', { opacity: [0.4, 1], duration: 300, ease: 'outQuad' }, '-=320')
     .add('.handoff-note', { opacity: [0, 1], translateY: [4, 0], duration: 400, ease: 'outQuad' }, '-=200')
-  flow()
 }
 
 // The object rises out of its slot and tilts toward the viewer.

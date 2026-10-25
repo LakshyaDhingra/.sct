@@ -85,7 +85,7 @@ export function SharingView({ projectId, tab, projects, secrets, updateSecrets }
               } : current)} />
           </div>
           <div hidden={activeTab !== 'relay'}>
-            <RelaySharing projectId={projectId} projects={projects} secrets={secrets}
+            <RelaySharing projectId={projectId} active={activeTab === 'relay'} projects={projects} secrets={secrets}
               busy={operation.busy} run={operation.run} />
           </div>
         </>
@@ -108,6 +108,10 @@ function activeSharingTab(sharing: Loaded<SharingState>, received: boolean, tab?
   if (sharing.state !== 'ready') return 'devices'
   if (!tab && (received || sharing.value.incoming.length > 0)) return 'receive'
   return sharing.value.peers.length > 0 ? tab ?? 'secrets' : 'devices'
+}
+
+function selectedNames(secrets: Loaded<SecretMetadata[]>, selected: Set<string>): string[] {
+  return secrets.state === 'ready' ? secrets.value.filter((secret) => selected.has(secret.id)).map((secret) => secret.name) : []
 }
 
 function secretCount(count: number): string {
@@ -154,33 +158,44 @@ function SharingTabs({ activeTab, projectId, canShare }: { activeTab: SharingTab
   )
 }
 
-function RelaySharing({ projectId, projects, secrets, busy, run }: {
+function RelaySharing({ projectId, active, projects, secrets, busy, run }: {
   projectId?: string
+  active: boolean
   projects: Loaded<Project[]>
   secrets: Loaded<SecretMetadata[]>
   busy: boolean
   run: Run
 }) {
   const [relay, setRelay] = useState<Loaded<RelayState>>({ state: 'loading' })
+  // Inbox rows that were present at the first load, or that already showed an arrival.
+  const [seen, setSeen] = useState<Set<string> | null>(null)
 
   useEffect(() => {
-    let active = true
+    let mounted = true
     const refresh = () => {
       window.sct.getRelayState().then((value) => {
-        if (active) setRelay({ state: 'ready', value })
+        if (!mounted) return
+        setRelay({ state: 'ready', value })
+        setSeen((current) => current ?? new Set(value.inbox.map((item) => item.messageId)))
       }).catch((cause: unknown) => {
-        if (active) setRelay({ state: 'error', error: errorText(cause, 'Cannot read relay status.') })
+        if (mounted) setRelay({ state: 'error', error: errorText(cause, 'Cannot read relay status.') })
       })
     }
     refresh()
     const unsubscribe = window.sct.onRelayChanged(refresh)
-    return () => { active = false; unsubscribe() }
+    return () => { mounted = false; unsubscribe() }
   }, [])
 
   if (relay.state === 'loading') return <p role="status">Loading relay…</p>
   if (relay.state === 'error') return <p className="error" role="alert">{relay.error}</p>
+  // A dialog inside the hidden tab cannot show, so a new arrival waits until the Relay tab is open.
+  const arrival = active && seen ? relay.value.inbox.find((item) => !seen.has(item.messageId)) : undefined
+  const sender = arrival ? peerName(relay.value, arrival.sender) : ''
   return (
     <>
+      {arrival && <HandoffModal key={arrival.messageId} heading={`Receiving from ${sender}`} via="relay" from={sender} to="This Mac"
+        stage="arrived" object={{ shape: 'key', title: 'Encrypted transfer', detail: shortId(arrival.messageId) }}
+        onDone={() => setSeen((current) => new Set([...(current ?? []), arrival.messageId]))} />}
       <RelayConnection state={relay.value} />
       <RelayPairing state={relay.value} busy={busy} run={run} />
       <RelaySend projectId={projectId} projects={projects} secrets={secrets} state={relay.value} busy={busy} run={run} />
@@ -304,11 +319,17 @@ function RelaySend({ projectId, projects, secrets, state, busy, run }: {
   const [deliverBy, setDeliverBy] = useState('')
   const [accessExpiresAt, setAccessExpiresAt] = useState('')
   const [injectionOnly, setInjectionOnly] = useState(true)
+  const [handoff, setHandoff] = useState<RelayHandoffState | null>(null)
 
   async function queue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await run('Encrypting and saving the relay transfer…', async () => {
-      await window.sct.queueRelayTransfer({
+    const sent = {
+      recipient: recipients.find((peer) => peer.identity === recipient)?.name ?? 'the recipient',
+      names: selectedNames(secrets, selected)
+    }
+    setHandoff({ stage: 'prepare', messageId: '', ...sent })
+    const queued = await run('Encrypting and saving the relay transfer…', async () => {
+      const messageId = await window.sct.queueRelayTransfer({
         projectId: source,
         secretIds: [...selected],
         recipient,
@@ -316,14 +337,17 @@ function RelaySend({ projectId, projects, secrets, state, busy, run }: {
         accessExpiresAt: accessExpiresAt ? new Date(accessExpiresAt).getTime() : null,
         injectionOnly
       })
+      setHandoff({ stage: 'wait', messageId, ...sent })
       setSelected(new Set())
       return 'The encrypted transfer is queued on this Mac.'
     })
+    if (!queued) setHandoff(null)
   }
 
   return (
     <section className="panel" aria-labelledby="relay-send-heading">
       <h2 id="relay-send-heading">Queue a relay transfer</h2>
+      {handoff && <RelayHandoff handoff={handoff} sent={state.sent} onDone={() => setHandoff(null)} />}
       {recipients.length === 0 && <p>Verify a relay device before you queue secrets.</p>}
       {projects.state === 'ready' && projects.value.length === 0 && <p><a href="#/">Add a project</a> to store and share secrets.</p>}
       {recipients.length > 0 && projects.state === 'ready' && projects.value.length > 0 && <form onSubmit={(event) => { void queue(event) }}>
@@ -365,6 +389,27 @@ function RelaySend({ projectId, projects, secrets, state, busy, run }: {
         </fieldset>
       </form>}
     </section>
+  )
+}
+
+interface RelayHandoffState {
+  stage: 'prepare' | 'wait'
+  messageId: string
+  recipient: string
+  names: string[]
+}
+
+// The relay state drives the last stage. A failed or expired transfer closes the modal, and the activity table shows why.
+function RelayHandoff({ handoff, sent, onDone }: { handoff: RelayHandoffState; sent: RelaySentItem[]; onDone: () => void }) {
+  const delivery = sent.find((item) => item.messageId === handoff.messageId)?.state
+  if (delivery === 'failed' || delivery === 'expired') return null
+  return (
+    <HandoffModal heading={`Sending secrets to ${handoff.recipient}`} via="relay" from="This Mac" to={handoff.recipient}
+      stage={delivery === 'received' ? 'delivered' : handoff.stage} onDone={onDone} object={{
+        shape: 'key',
+        title: secretCount(handoff.names.length),
+        detail: <Scramble text={handoff.names.join(' ')} mode="encrypt" />
+      }} />
   )
 }
 
@@ -445,10 +490,7 @@ function SendSecrets({ projectId, active, projects, secrets, peers, busy, run }:
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const sent = {
-      names: secrets.state === 'ready' ? secrets.value.filter((secret) => selected.has(secret.id)).map((secret) => secret.name) : [],
-      recipient: recipientName
-    }
+    const sent = { names: selectedNames(secrets, selected), recipient: recipientName }
     setHandoff({ stage: 'wait', ...sent })
     const shared = await run(`Encrypting the secrets. Choose ${recipientName} in the picker.`, async () => {
       await window.sct.shareSecrets({ projectId: source, secretIds: [...selected], recipientId: recipient })
