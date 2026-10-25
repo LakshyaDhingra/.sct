@@ -11,8 +11,9 @@ const holdAfterEnd = 1500
 // prepare: the main process makes the file. wait: the object waits at the AirDrop picker or in the relay queue.
 // handed: the picker closed. macOS reports no delivery, so the object goes into the AirDrop rings and never lands.
 // delivered: the relay reported that the recipient received the transfer, so the object lands on the recipient.
-// arrived: this Mac received a transfer, so the object lands here.
-export type HandoffStage = 'prepare' | 'wait' | 'handed' | 'delivered' | 'arrived'
+// received: an encrypted relay transfer reached this Mac. It is not imported yet.
+// arrived: this Mac imported a transfer, so the object lands in the destination project.
+export type HandoffStage = 'prepare' | 'wait' | 'handed' | 'delivered' | 'received' | 'arrived'
 
 export type HandoffRoute = 'airdrop' | 'relay'
 
@@ -70,7 +71,7 @@ export function HandoffModal({ heading, from, to, toDevice = 'mac', via = 'airdr
   const stageNode = useRef<HTMLDivElement>(null)
   const previous = useRef<HandoffStage | null>(null)
   const locked = stage === 'prepare' || (via === 'airdrop' && stage === 'wait')
-  const finished = stage === 'handed' || stage === 'delivered' || stage === 'arrived'
+  const finished = stage === 'handed' || stage === 'delivered' || stage === 'received' || stage === 'arrived'
 
   useEffect(() => {
     const element = dialog.current
@@ -85,7 +86,7 @@ export function HandoffModal({ heading, from, to, toDevice = 'mac', via = 'airdr
       if (self?.matches.reduce) {
         utils.set('.handoff-object', stillFrame(stage, via))
         utils.set('.handoff-note', { opacity: finished ? 1 : 0 })
-        utils.set('.handoff-screen-to', { opacity: stage === 'delivered' || stage === 'arrived' ? 1 : 0.5 })
+        utils.set('.handoff-screen-to', { opacity: stage === 'handed' || stage === 'wait' || stage === 'prepare' ? 0.5 : 1 })
         if (finished) close()
         return
       }
@@ -119,7 +120,7 @@ export function HandoffModal({ heading, from, to, toDevice = 'mac', via = 'airdr
         <span className="handoff-label handoff-label-gate">{via === 'relay' ? 'Relay' : 'AirDrop'}</span>
         <span className="handoff-label handoff-label-to">
           {to}
-          <span className="handoff-note">{note(stage, via)}</span>
+          <span className="handoff-note">{note(stage)}</span>
         </span>
       </div>
       {!locked && !finished && <div className="form-actions">
@@ -172,12 +173,14 @@ function caption(stage: HandoffStage, via: HandoffRoute, to: string): string {
   if (stage === 'wait') return via === 'relay' ? `Queued for ${to}. The relay sends it when ${to} connects.` : `Choose ${to} in the AirDrop picker.`
   if (stage === 'handed') return `Sent if you chose ${to}. macOS does not confirm delivery.`
   if (stage === 'delivered') return `${to} received the transfer.`
-  return via === 'relay' ? 'The encrypted transfer reached this Mac.' : `Imported into ${to}.`
+  if (stage === 'received') return 'The encrypted transfer reached this Mac.'
+  return `Imported into ${to}.`
 }
 
-function note(stage: HandoffStage, via: HandoffRoute): string {
+function note(stage: HandoffStage): string {
   if (stage === 'delivered') return 'Received'
-  if (stage === 'arrived') return via === 'relay' ? 'Received' : 'Imported'
+  if (stage === 'received') return 'Received'
+  if (stage === 'arrived') return 'Imported'
   return 'Sent if you chose it'
 }
 

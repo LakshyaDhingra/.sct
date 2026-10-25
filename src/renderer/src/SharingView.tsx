@@ -195,7 +195,7 @@ function RelaySharing({ projectId, active, projects, secrets, busy, run, updateS
   return (
     <>
       {arrival && <HandoffModal key={arrival.messageId} heading={`Receiving from ${sender}`} via="relay" from={sender} to="This Mac"
-        stage="arrived" object={{ shape: 'key', title: 'Encrypted transfer', detail: shortId(arrival.messageId) }}
+        stage="received" object={{ shape: 'key', title: 'Encrypted transfer', detail: shortId(arrival.messageId) }}
         onDone={() => setSeen((current) => new Set([...(current ?? []), arrival.messageId]))} />}
       <RelayConnection state={relay.value} />
       <RelayPairing state={relay.value} busy={busy} run={run} />
@@ -454,42 +454,53 @@ function RelayInboxTransfer({ item, state, projects, busy, run, updateSecrets }:
   run: Run
   updateSecrets: UpdateSecrets
 }) {
+  // The import replaces the form with the receipt text, so the modal state lives here and not in the form.
+  const [imported, setImported] = useState<{ project: string; names: string[] } | null>(null)
+  const sender = peerName(state, item.sender)
   return <li>
+    {imported && <HandoffModal heading={`Receiving from ${sender}`} via="relay" from={sender} to={imported.project}
+      stage="arrived" onDone={() => setImported(null)} object={{
+        shape: 'key',
+        title: secretCount(imported.names.length),
+        detail: imported.names.join(' ')
+      }} />}
     <div className="relay-inbox-heading">
       <div>
         <h4>{item.projectName ?? 'Unreadable transfer'}</h4>
-        <p>From {peerName(state, item.sender)}. Transfer <code>{shortId(item.messageId)}</code>.</p>
+        <p>From {sender}. Transfer <code>{shortId(item.messageId)}</code>.</p>
       </div>
       <span className="delivery-state" data-state={item.state}>{item.state}</span>
     </div>
     {item.secretNames.length > 0 && <p>{item.secretNames.join(', ')}</p>}
     <p className="field-help">Deliver before {formatTime(item.deliverBy)}. {grantText(item)}</p>
     {item.error && <p className="error" role="alert">{item.error}</p>}
-    <RelayInboxAction item={item} projects={projects} busy={busy} run={run} updateSecrets={updateSecrets} />
+    <RelayInboxAction item={item} projects={projects} busy={busy} run={run} updateSecrets={updateSecrets} onImported={setImported} />
   </li>
 }
 
-function RelayInboxAction({ item, projects, busy, run, updateSecrets }: {
+function RelayInboxAction({ item, projects, busy, run, updateSecrets, onImported }: {
   item: RelayInboxItem
   projects: Loaded<Project[]>
   busy: boolean
   run: Run
   updateSecrets: UpdateSecrets
+  onImported: (imported: { project: string; names: string[] }) => void
 }) {
   if (item.state === 'received' && item.receivedAt) return <p className="field-help">
     Imported {formatTime(item.receivedAt)}. The receipt confirms durable delivery.
   </p>
   if (item.state !== 'pending' || projects.state !== 'ready') return null
   if (projects.value.length === 0) return <p><a href="#/">Add a project</a> before you import this transfer.</p>
-  return <RelayImportForm item={item} projects={projects.value} busy={busy} run={run} updateSecrets={updateSecrets} />
+  return <RelayImportForm item={item} projects={projects.value} busy={busy} run={run} updateSecrets={updateSecrets} onImported={onImported} />
 }
 
-function RelayImportForm({ item, projects, busy, run, updateSecrets }: {
+function RelayImportForm({ item, projects, busy, run, updateSecrets, onImported }: {
   item: RelayInboxItem
   projects: Project[]
   busy: boolean
   run: Run
   updateSecrets: UpdateSecrets
+  onImported: (imported: { project: string; names: string[] }) => void
 }) {
   const [destination, setDestination] = useState(item.destinationProjectId ?? (projects.length === 1 ? projects[0]?.id ?? '' : ''))
 
@@ -498,6 +509,7 @@ function RelayImportForm({ item, projects, busy, run, updateSecrets }: {
     await run('Verifying and importing the relay transfer…', async () => {
       const saved = await window.sct.acceptRelayTransfer({ messageId: item.messageId, projectId: destination })
       updateSecrets((current) => [...current.filter((secret) => !saved.some((added) => added.id === secret.id)), ...saved])
+      onImported({ project: projects.find((project) => project.id === destination)?.name ?? 'the selected project', names: saved.map((secret) => secret.name) })
       return `Imported ${saved.length} ${saved.length === 1 ? 'secret' : 'secrets'}. The encrypted receipt is saved.`
     })
   }
