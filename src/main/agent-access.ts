@@ -19,6 +19,8 @@ interface AgentServices {
   sharing: () => Promise<Sharing>
   shareFile: (path: string) => Promise<void>
   relayState: () => Promise<RelayState>
+  // Writes a task request for the desktop app to send. Returns the task ID.
+  requestRemoteDemo: (grantId: string) => Promise<string>
   // Resolves to null when the caller fails the signature check of a listed agent.
   caller: Promise<AgentCaller | null>
   executable: string
@@ -141,6 +143,13 @@ export class AgentAccess {
       return { pairingToken: preview.token, view: { secrets: [], detail: 'Verify the other Mac after comparing the pairing code.',
         pairing: { name: preview.device.name, fingerprint: preview.device.fingerprint, code: preview.code } } }
     }
+    if (submission.operation === 'request_remote_demo') {
+      const state = await this.services.relayState()
+      const grant = state.sent.find((item) => item.messageId === submission.input.grantId && item.state === 'received')
+      if (!grant) throw new Error('Select a relay transfer that the recipient imported.')
+      const peer = state.peers.find((item) => item.identity === grant.recipient)?.name ?? grant.recipient.slice(0, 12)
+      return { view: { secrets: [], detail: `Ask ${peer} to run the fixed environment demo with the secrets of relay transfer ${grant.messageId}. That Mac must also approve. The .sct app sends the request. The result can arrive later.` } }
+    }
     if (submission.operation === 'sharing_state' || submission.operation === 'relay_status') {
       return { view: { secrets: [], detail: submission.operation === 'sharing_state'
         ? 'Read this device, verified recipients, and pending transfer metadata.'
@@ -206,6 +215,8 @@ export class AgentAccess {
         const state = await this.services.relayState()
         return { ...state, error: state.error ? 'The relay connection or local cache needs attention.' : null }
       }
+      case 'request_remote_demo':
+        return { taskId: await this.services.requestRemoteDemo(submission.input.grantId), status: 'queued' }
     }
   }
 

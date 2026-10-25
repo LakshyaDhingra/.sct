@@ -243,6 +243,7 @@ async function runAgentSession(): Promise<number> {
         shareFile: sendToNearbyMac,
         caller,
         relayState: async () => (await getRelay()).state(),
+        requestRemoteDemo: async (grantId) => (await getRelay()).requestTask(grantId),
         executable: process.execPath,
         demo: demoFile()
       })
