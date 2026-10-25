@@ -8,7 +8,7 @@ import { rmSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { ProjectStore } from './projects'
 import { Vault } from './vault'
-import { runProject } from './launch'
+import { demoOutcome, runProject, startFixedDemo } from './launch'
 import { runAgent, writeCliOutput } from './agent'
 import { AgentAccess } from './agent-access'
 import { identifyCaller } from './caller'
@@ -135,17 +135,17 @@ app.whenReady().then(async () => {
     }
     return
   }
-  sharing = new Sharing(join(app.getPath('userData'), 'sharing'), vault, hostname().slice(0, 100))
-  await sharing.cleanOutbox()
+  const service = new Sharing(join(app.getPath('userData'), 'sharing'), vault, hostname().slice(0, 100))
+  sharing = service
+  await service.cleanOutbox()
   const { Relay, relayServer } = await import('./relay-connection')
-  const relay = new Relay(relayServer(), join(app.getPath('userData'), 'relay'), sharing.deviceCard.bind(sharing),
-    sharing.prepareRelayTransfer.bind(sharing),
-    sharing.previewRelayTransfer.bind(sharing),
-    sharing.acceptRelayTransfer.bind(sharing),
-    sharing.verifyRelayReceipt.bind(sharing),
-    sharing.prepareRelayExpiryNotice.bind(sharing),
-    sharing.verifyRelayExpiryNotice.bind(sharing),
-    () => mainWindow?.webContents.send('relay:changed'))
+  // Only this process writes relay files and runs remote tasks. Agent sessions open a passive relay.
+  const relay = new Relay(relayServer(), join(app.getPath('userData'), 'relay'), async () => service,
+    () => mainWindow?.webContents.send('relay:changed'), {
+      runTask: async (projectId, grantId) => demoOutcome(await vault.withGrantSecrets(projectId, grantId,
+        (project, values) => startFixedDemo(project, values, process.execPath, demoFile()))),
+      cleanupGrants: () => vault.cleanupExpiredGrants()
+    })
   await relay.start()
   await relay.queueGrantExpiryNotifications(await vault.grantCleanupOutcomes())
   const cleanExpiredGrants = async () => {
@@ -167,6 +167,8 @@ app.whenReady().then(async () => {
   handle('relay:remove-pair', (pairId) => relay.removePair(pairId))
   handle('relay:queue-transfer', (input) => relay.queueTransfer(input))
   handle('relay:accept-transfer', (input) => relay.acceptRelayTransfer(input))
+  handle('relay:queue-task', (grantId) => relay.queueTask(grantId))
+  handle('relay:respond-task', (input) => relay.respondTask(input))
   handle('projects:list', () => projects.list())
   handle('projects:add', (input) => vault.addProject(input))
   handle('projects:rename', (input) => vault.renameProject(input))
@@ -189,7 +191,7 @@ app.whenReady().then(async () => {
     })
     return root ? vault.moveTo(root) : null
   })
-  registerSharing(sharing)
+  registerSharing(service)
   registerCards(new Cards(join(app.getPath('userData'), 'cards')))
   await createWindow()
   app.on('activate', () => {
@@ -211,6 +213,13 @@ async function runAgentSession(): Promise<number> {
   let sharingReady: Promise<void> | undefined
   let relay: Promise<Relay> | undefined
   const caller = identifyCaller()
+  // The agent session relay is passive. It reads relay rows and files, and writes only new task requests.
+  const getRelay = () => relay ??= (async () => {
+    const { Relay, relayServer } = await import('./relay-connection')
+    const service = new Relay(relayServer(), join(app.getPath('userData'), 'relay'), getSharing, () => undefined)
+    await service.start()
+    return service
+  })()
   const getSharing = async () => {
     await getAccess()
     if (!sessionSharing) throw new Error('The local sharing service is unavailable.')
@@ -233,29 +242,9 @@ async function runAgentSession(): Promise<number> {
         sharing: getSharing,
         shareFile: sendToNearbyMac,
         caller,
-        relayState: async () => {
-          relay ??= (async () => {
-            const { Relay, relayServer } = await import('./relay-connection')
-            const service = new Relay(relayServer(), join(app.getPath('userData'), 'relay'),
-              async () => (await getSharing()).deviceCard(),
-              async (identity, recipient, input) => (await getSharing()).prepareRelayTransfer(identity, recipient, input),
-              async (identity, sender, payload, wrappedKey) => (await getSharing()).previewRelayTransfer(identity, sender, payload, wrappedKey),
-              async (identity, sender, payload, wrappedKey, projectId, beforeWrite) =>
-                (await getSharing()).acceptRelayTransfer(identity, sender, payload, wrappedKey, projectId, beforeWrite),
-              async (identity, recipient, transferId, receipt) =>
-                (await getSharing()).verifyRelayReceipt(identity, recipient, transferId, receipt),
-              async (identity, sender, transferId, expiredAt, secretCount) =>
-                (await getSharing()).prepareRelayExpiryNotice(identity, sender, transferId, expiredAt, secretCount),
-              async (identity, recipient, transferId, notice) =>
-                (await getSharing()).verifyRelayExpiryNotice(identity, recipient, transferId, notice),
-              () => undefined)
-            await service.start()
-            return service
-          })()
-          return (await relay).state()
-        },
+        relayState: async () => (await getRelay()).state(),
         executable: process.execPath,
-        demo: app.isPackaged ? join(process.resourcesPath, 'demo', 'index.cjs') : join(__dirname, '../demo/index.cjs')
+        demo: demoFile()
       })
       return access
     })().catch((error: unknown) => { loading = undefined; throw error })
@@ -277,6 +266,10 @@ async function runAgentSession(): Promise<number> {
     if (relay) (await relay.catch(() => undefined))?.stop()
     mainWindow?.destroy()
   }
+}
+
+function demoFile(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'demo', 'index.cjs') : join(__dirname, '../demo/index.cjs')
 }
 
 function skillsDirectory(): string {

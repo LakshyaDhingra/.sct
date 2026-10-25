@@ -3,7 +3,7 @@ import type { Reply, SctAPI } from '../shared/api'
 import type { Project, ProjectInput, ProjectRename } from '../shared/projects'
 import type { SecretInput, SecretMetadata, SecretReference, SecretUpdate } from '../shared/secrets'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../shared/sharing'
-import type { ConfirmRelayPairInput, RelayAcceptInput, RelayQueueInput, RelayState } from '../shared/relay'
+import type { ConfirmRelayPairInput, RelayAcceptInput, RelayQueueInput, RelayState, RelayTaskDecision } from '../shared/relay'
 import type { AgentRequestView } from '../shared/agent'
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
@@ -56,7 +56,9 @@ const api: SctAPI = {
   confirmRelayPair: (input: ConfirmRelayPairInput) => invoke<void>('relay:confirm-pair', input),
   removeRelayPair: (pairId: string) => invoke<void>('relay:remove-pair', pairId),
   queueRelayTransfer: (input: RelayQueueInput) => invoke<string>('relay:queue-transfer', input),
-  acceptRelayTransfer: (input: RelayAcceptInput) => invoke<SecretMetadata[]>('relay:accept-transfer', input)
+  acceptRelayTransfer: (input: RelayAcceptInput) => invoke<SecretMetadata[]>('relay:accept-transfer', input),
+  queueRelayTask: (grantId: string) => invoke<string>('relay:queue-task', grantId),
+  respondRelayTask: (input: RelayTaskDecision) => invoke<void>('relay:respond-task', input)
 }
 
 contextBridge.exposeInMainWorld('sct', api)
