@@ -1,5 +1,5 @@
 import { AsyncEntry } from '@napi-rs/keyring'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Identity, Timestamp } from 'spacetimedb'
@@ -11,6 +11,7 @@ import type { RelayTransferAcceptance, RelayTransferPreview } from './sharing'
 import { readDeviceCard, relayPairingCode } from './transfer'
 import type { DeviceCard } from './transfer'
 import type { SecretMetadata } from '../shared/secrets'
+import type { GrantCleanupOutcome } from './vault'
 import type { RelayAcceptInput, RelayConnection, RelayInboxItem, RelayPeer, RelayQueueInput, RelaySentItem, RelayState, RelayTransferInput } from '../shared/relay'
 
 export interface RelayServer {
@@ -46,6 +47,15 @@ interface CachedInboxItem {
   wrappedKey: string
 }
 
+interface CachedExpiryNotice {
+  id: string
+  correlationId: string
+  sender: string
+  notice: string
+  createdAt: string
+  retainUntil: string
+}
+
 // The cache keeps the relay rows of the last connection. Inbox payloads and wrapped keys stay ciphertext.
 interface Cache {
   identity: string | null
@@ -53,6 +63,7 @@ interface Cache {
   peers: CachedPeer[]
   inbox: CachedInboxItem[]
   sent: CachedSentItem[]
+  expiryNotices: CachedExpiryNotice[]
 }
 
 interface OutboundTransfer {
@@ -62,6 +73,18 @@ interface OutboundTransfer {
   deliverBy: number
   payload: string
   wrappedKey: string
+  accessExpiresAt: number | null
+  error: string | null
+}
+
+interface OutboundExpiryNotice {
+  id: string
+  correlationId: string
+  recipient: string
+  createdAt: number
+  publishBy: number
+  notice: string
+  published: boolean
   error: string | null
 }
 
@@ -98,7 +121,8 @@ interface Pin {
 
 const liveServer: RelayServer = { uri: 'https://maincloud.spacetimedb.com', database: 'sct-relay' }
 const magic = Buffer.from('SCR1')
-const emptyCache: Cache = { identity: null, updatedAt: null, peers: [], inbox: [], sent: [] }
+const emptyCache: Cache = { identity: null, updatedAt: null, peers: [], inbox: [], sent: [], expiryNotices: [] }
+const retentionPeriod = 30 * 24 * 60 * 60 * 1000
 const pendingUnchanged: PendingResult = { changed: false, failed: false }
 const pendingChanged: PendingResult = { changed: true, failed: false }
 const pendingFailed: PendingResult = { changed: true, failed: true }
@@ -118,6 +142,7 @@ export class Relay {
   private cache: Cache = emptyCache
   private outbox: OutboundTransfer[] = []
   private received: ReceivedTransfer[] = []
+  private notices: OutboundExpiryNotice[] = []
   private pins: Pin[] = []
   private status: RelayConnection
   private registered = false
@@ -137,6 +162,10 @@ export class Relay {
     private readonly acceptTransfer: (identity: string, sender: RelayPeerKeys, payload: Buffer, wrappedKey: Buffer,
       projectId: string, beforeWrite: (preview: RelayTransferPreview) => Promise<void>) => Promise<RelayTransferAcceptance>,
     private readonly verifyReceipt: (identity: string, recipient: RelayPeerKeys, transferId: string, receipt: Buffer) => Promise<void>,
+    private readonly prepareExpiryNotice: (identity: string, sender: RelayPeerKeys, transferId: string,
+      expiredAt: number, secretCount: number) => Promise<Buffer>,
+    private readonly verifyExpiryNotice: (identity: string, recipient: RelayPeerKeys, transferId: string,
+      notice: Buffer) => Promise<number>,
     private readonly changed: () => void,
     private readonly service = '.sct-relay') {
     this.status = server ? 'connecting' : 'off'
@@ -144,15 +173,19 @@ export class Relay {
 
   async start(): Promise<void> {
     if (!this.server) return
-    const [cache, outbox, received] = await Promise.all([
+    const [cache, outbox, received, notices] = await Promise.all([
       this.readSealed('cache', emptyCache),
       this.readSealed<{ transfers: OutboundTransfer[] }>('outbox', { transfers: [] }),
-      this.readSealed<{ transfers: ReceivedTransfer[] }>('received', { transfers: [] })
+      this.readSealed<{ transfers: ReceivedTransfer[] }>('received', { transfers: [] }),
+      this.readSealed<{ notices: OutboundExpiryNotice[] }>('notices', { notices: [] })
     ])
     this.cache = normalizeCache(cache)
-    this.outbox = outbox.transfers.map((transfer) => ({ ...transfer, error: transfer.error ?? null }))
+    this.outbox = outbox.transfers.map((transfer) => ({ ...transfer,
+      accessExpiresAt: transfer.accessExpiresAt ?? null, error: transfer.error ?? null }))
     this.received = received.transfers.map((transfer) => ({ ...transfer,
       acknowledged: transfer.acknowledged ?? false, error: transfer.error ?? null }))
+    this.notices = notices.notices.map((notice) => ({ ...notice, published: notice.published ?? false, error: notice.error ?? null }))
+    await this.pruneRetained()
     // An unreadable list fails closed: every peer needs a new code comparison.
     this.pins = (await this.readSealed<{ pins: Pin[] }>('peers', { pins: [] })).pins
     void this.connect()
@@ -179,6 +212,42 @@ export class Relay {
     }
   }
 
+  queueGrantExpiryNotifications(outcomes: GrantCleanupOutcome[]): Promise<void> {
+    return this.serialize(async () => {
+      const identity = this.cache.identity
+      if (!identity) return
+      const additions = (await Promise.all(this.received.map(async (transfer): Promise<OutboundExpiryNotice | null> => {
+        if (!transfer.complete || transfer.accessExpiresAt === null || transfer.accessExpiresAt > Date.now() ||
+          this.notices.some((notice) => notice.correlationId === transfer.messageId)) return null
+        const removed = outcomes.filter((outcome) => outcome.status === 'removed' &&
+          outcome.transferId.startsWith(`relay:${transfer.messageId}:`))
+        if (!transfer.secrets.every((secret) => removed.some((outcome) => outcome.secretId === secret.id))) return null
+        try {
+          return {
+            id: randomUUID(),
+            correlationId: transfer.messageId,
+            recipient: transfer.sender,
+            createdAt: Date.now(),
+            publishBy: Date.now() + deliveryLimit - clockSkew,
+            notice: (await this.prepareExpiryNotice(identity, await this.verifiedPeer(transfer.sender), transfer.messageId,
+              transfer.accessExpiresAt, transfer.secrets.length)).toString('base64'),
+            published: false,
+            error: null
+          }
+        } catch {
+          // Keep the cleanup outcome. A later connection or repaired pairing can queue the notice.
+          return null
+        }
+      }))).filter((notice): notice is OutboundExpiryNotice => notice !== null)
+      if (additions.length) {
+        this.notices.push(...additions)
+        await this.writeSealed('notices', { notices: this.notices })
+      }
+      if (this.connection && this.status === 'connected') await this.processPending(this.connection)
+      this.changed()
+    })
+  }
+
   // Returns the message ID, so the window can follow the delivery state of this transfer.
   queueTransfer(value: unknown): Promise<string> {
     return this.serialize(async () => {
@@ -203,6 +272,7 @@ export class Relay {
         deliverBy: transfer.deliverBy,
         payload: sealed.payload.toString('base64'),
         wrappedKey: wrappedKey.wrappedKey.toString('base64'),
+        accessExpiresAt: input.accessExpiresAt,
         error: null
       }]
       await this.writeSealed('outbox', { transfers })
@@ -350,7 +420,7 @@ export class Relay {
 
   private watch(connection: DbConnection): void {
     const refresh = () => this.refresh(connection)
-    for (const view of [connection.db.myInbox, connection.db.mySent, connection.db.myPeers]) {
+    for (const view of [connection.db.myInbox, connection.db.mySent, connection.db.myPeers, connection.db.myExpiryNotices]) {
       view.onInsert(refresh)
       view.onDelete(refresh)
     }
@@ -360,7 +430,7 @@ export class Relay {
         this.error = `Cannot read the relay. ${message(context.event)}`
         this.changed()
       })
-      .subscribe(['SELECT * FROM my_inbox', 'SELECT * FROM my_sent', 'SELECT * FROM my_peers'])
+      .subscribe(['SELECT * FROM my_inbox', 'SELECT * FROM my_sent', 'SELECT * FROM my_peers', 'SELECT * FROM my_expiry_notices'])
   }
 
   private refresh(connection: DbConnection): void {
@@ -391,6 +461,14 @@ export class Relay {
         deliverBy: row.deliverBy.toISOString(),
         receivedAt: row.receivedAt?.toISOString() ?? null,
         receipt: row.receipt ? Buffer.from(row.receipt).toString('base64') : null
+      })),
+      expiryNotices: [...connection.db.myExpiryNotices.iter()].map((row) => ({
+        id: row.id,
+        correlationId: row.correlationId,
+        sender: row.sender.toHexString(),
+        notice: Buffer.from(row.notice).toString('base64'),
+        createdAt: row.createdAt.toISOString(),
+        retainUntil: row.retainUntil.toISOString()
       }))
     }
     this.saving = this.saving.then(() => this.writeSealed('cache', this.cache)).catch((error: unknown) => {
@@ -433,19 +511,25 @@ export class Relay {
 
   private async sentItems(now = Date.now()): Promise<RelaySentItem[]> {
     const remote = new Map(this.cache.sent.map((item) => [`${item.messageId}/${item.recipient}`, item]))
+    const notices = new Map(this.cache.expiryNotices.map((item) => [`${item.correlationId}/${item.sender}`, item]))
     const items = await Promise.all(this.outbox.map(async (item): Promise<RelaySentItem> => {
       const sent = remote.get(`${item.messageId}/${item.recipient}`)
       remote.delete(`${item.messageId}/${item.recipient}`)
+      const notice = notices.get(`${item.messageId}/${item.recipient}`)
+      notices.delete(`${item.messageId}/${item.recipient}`)
       const receiptError = sent?.status === 'Received' ? await this.receiptError(item, sent) : null
+      const expiry = notice ? await this.expiryResult(item.messageId, item.recipient, notice) : undefined
       return {
         messageId: item.messageId,
         recipient: item.recipient,
-        state: receiptError ? 'failed' : sent?.status === 'Received' ? 'received' : sent ? 'sent'
-          : item.deliverBy <= now ? 'expired' : item.error ? 'failed' : 'queued',
+        state: receiptError ? 'failed' : sent?.status === 'Received' ? 'received' : item.deliverBy <= now ? 'expired'
+          : sent ? 'sent' : item.error ? 'failed' : 'queued',
         createdAt: new Date(item.createdAt).toISOString(),
         deliverBy: new Date(item.deliverBy).toISOString(),
         receivedAt: sent?.receivedAt ?? null,
-        error: receiptError ?? item.error
+        accessExpiresAt: item.accessExpiresAt === null ? null : new Date(item.accessExpiresAt).toISOString(),
+        accessExpiredAt: expiry?.expiredAt ?? null,
+        error: receiptError ?? expiry?.error ?? item.error
       }
     }))
     for (const sent of remote.values()) items.push({
@@ -455,8 +539,24 @@ export class Relay {
       createdAt: null,
       deliverBy: sent.deliverBy,
       receivedAt: sent.receivedAt,
+      accessExpiresAt: null,
+      accessExpiredAt: null,
       error: sent.status === 'Received' ? 'The local transfer is unavailable, so .sct cannot verify its receipt.' : null
     })
+    items.push(...await Promise.all([...notices.values()].map(async (notice): Promise<RelaySentItem> => {
+      const expiry = await this.expiryResult(notice.correlationId, notice.sender, notice)
+      return {
+        messageId: notice.correlationId,
+        recipient: notice.sender,
+        state: expiry.error ? 'failed' : 'received',
+        createdAt: null,
+        deliverBy: null,
+        receivedAt: null,
+        accessExpiresAt: null,
+        accessExpiredAt: expiry.expiredAt,
+        error: expiry.error
+      }
+    })))
     return items.sort((left, right) => (right.createdAt ?? '').localeCompare(left.createdAt ?? ''))
   }
 
@@ -505,6 +605,21 @@ export class Relay {
     }
   }
 
+  private async expiryResult(transferId: string, recipient: string,
+    notice: CachedExpiryNotice): Promise<{ expiredAt: string | null; error: string | null }> {
+    try {
+      const identity = this.cache.identity
+      if (!identity) throw new Error('The relay identity is unavailable.')
+      return {
+        expiredAt: new Date(await this.verifyExpiryNotice(identity, await this.verifiedPeer(recipient), transferId,
+          Buffer.from(notice.notice, 'base64'))).toISOString(),
+        error: null
+      }
+    } catch (error) {
+      return { expiredAt: null, error: message(error) }
+    }
+  }
+
   private async processPending(connection: DbConnection): Promise<void> {
     if (connection !== this.connection || this.status !== 'connected') return
     const publications = await Promise.all(this.outbox.map((transfer) => this.publishPending(connection, transfer)))
@@ -513,7 +628,10 @@ export class Relay {
       .filter((item) => item.complete && !item.acknowledged)
       .map((transfer) => this.sendPendingReceipt(connection, transfer)))
     if (acknowledgments.some((result) => result.changed)) await this.saveReceived(this.received)
-    if ([...publications, ...acknowledgments].some((result) => result.failed)) this.scheduleDelivery(connection)
+    const notices = await Promise.all(this.notices.filter((notice) => !notice.published)
+      .map((notice) => this.publishExpiryNotice(connection, notice)))
+    if (notices.some((result) => result.changed)) await this.writeSealed('notices', { notices: this.notices })
+    if ([...publications, ...acknowledgments, ...notices].some((result) => result.failed)) this.scheduleDelivery(connection)
     else this.deliveryAttempt = 0
     this.changed()
   }
@@ -538,6 +656,11 @@ export class Relay {
   }
 
   private async sendPendingReceipt(connection: DbConnection, transfer: ReceivedTransfer): Promise<PendingResult> {
+    if (transfer.deliverBy <= Date.now()) {
+      if (transfer.error === 'The delivery deadline passed before the receipt reached the relay.') return pendingUnchanged
+      transfer.error = 'The delivery deadline passed before the receipt reached the relay.'
+      return pendingChanged
+    }
     try {
       if (!transfer.receipt) throw new Error('The saved receipt is missing.')
       await connection.reducers.acknowledge({ messageId: transfer.messageId, receipt: Buffer.from(transfer.receipt, 'base64') })
@@ -546,6 +669,28 @@ export class Relay {
       return pendingChanged
     } catch (error) {
       transfer.error = `Cannot send this receipt. ${message(error)}`
+      return pendingFailed
+    }
+  }
+
+  private async publishExpiryNotice(connection: DbConnection, notice: OutboundExpiryNotice): Promise<PendingResult> {
+    if (notice.publishBy <= Date.now()) {
+      if (notice.error === 'The expiry notice deadline passed.') return pendingUnchanged
+      notice.error = 'The expiry notice deadline passed.'
+      return pendingChanged
+    }
+    try {
+      await connection.reducers.publishExpiryNotice({
+        id: notice.id,
+        correlationId: notice.correlationId,
+        recipient: Identity.fromString(notice.recipient),
+        notice: Buffer.from(notice.notice, 'base64')
+      })
+      notice.published = true
+      notice.error = null
+      return pendingChanged
+    } catch (error) {
+      notice.error = `Cannot publish this expiry notice. ${message(error)}`
       return pendingFailed
     }
   }
@@ -573,12 +718,30 @@ export class Relay {
     this.received = transfers
   }
 
+  private async pruneRetained(now = Date.now()): Promise<void> {
+    const outbox = this.outbox.filter((transfer) =>
+      Math.max(transfer.deliverBy, transfer.accessExpiresAt ?? 0) + retentionPeriod > now)
+    const notices = this.notices.filter((notice) => notice.createdAt + retentionPeriod > now)
+    const received = this.received.filter((transfer) => transfer.deliverBy + retentionPeriod > now ||
+      (transfer.accessExpiresAt !== null && (transfer.accessExpiresAt > now ||
+        !notices.some((notice) => notice.correlationId === transfer.messageId && notice.published))))
+    if (outbox.length !== this.outbox.length) {
+      this.outbox = outbox
+      await this.writeSealed('outbox', { transfers: outbox })
+    }
+    if (notices.length !== this.notices.length) {
+      this.notices = notices
+      await this.writeSealed('notices', { notices })
+    }
+    if (received.length !== this.received.length) await this.saveReceived(received)
+  }
+
   private async readToken(): Promise<string | undefined> {
     return (await this.entry(`token/${this.serverName()}`).getPassword()) ?? undefined
   }
 
   // An unreadable file returns the empty value. The cache refills from the next subscription.
-  private async readSealed<T>(name: 'cache' | 'peers' | 'outbox' | 'received', empty: T): Promise<T> {
+  private async readSealed<T>(name: 'cache' | 'peers' | 'outbox' | 'received' | 'notices', empty: T): Promise<T> {
     try {
       const sealed = decodeFile(magic, await readFile(this.sealedFile(name)))
       const key = await this.entry(`${name}/${this.serverName()}`).getSecret()
@@ -590,7 +753,7 @@ export class Relay {
     }
   }
 
-  private async writeSealed(name: 'cache' | 'peers' | 'outbox' | 'received', value: unknown): Promise<void> {
+  private async writeSealed(name: 'cache' | 'peers' | 'outbox' | 'received' | 'notices', value: unknown): Promise<void> {
     const saved = await this.entry(`${name}/${this.serverName()}`).getSecret()
     const key = saved ? Buffer.from(saved) : randomBytes(32)
     if (!saved) await this.entry(`${name}/${this.serverName()}`).setSecret(key)
@@ -603,11 +766,11 @@ export class Relay {
   }
 
   // Each relay server has its own identity, so each server has its own files. A test server cannot replace the files of the live relay.
-  private sealedFile(name: 'cache' | 'peers' | 'outbox' | 'received'): string {
+  private sealedFile(name: 'cache' | 'peers' | 'outbox' | 'received' | 'notices'): string {
     return join(this.directory, `${name}-${createHash('sha256').update(this.serverName()).digest('hex').slice(0, 16)}.sct`)
   }
 
-  private sealedData(name: 'cache' | 'peers' | 'outbox' | 'received'): Buffer {
+  private sealedData(name: 'cache' | 'peers' | 'outbox' | 'received' | 'notices'): Buffer {
     return Buffer.from(`relay-${name}/${this.serverName()}`)
   }
 
@@ -631,7 +794,8 @@ function normalizeCache(cache: Cache): Cache {
   return {
     ...cache,
     inbox: cache.inbox.map((item) => ({ ...item, deliverBy: item.deliverBy || transferDeadline(item.payload) })),
-    sent: cache.sent.map((item) => ({ ...item, deliverBy: item.deliverBy || '', receipt: item.receipt ?? null }))
+    sent: cache.sent.map((item) => ({ ...item, deliverBy: item.deliverBy || '', receipt: item.receipt ?? null })),
+    expiryNotices: cache.expiryNotices ?? []
   }
 }
 

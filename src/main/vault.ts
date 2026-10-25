@@ -13,6 +13,7 @@ import type { Sealed } from './seal.ts'
 
 // secrets.sct layout: magic | IV | GCM tag | ciphertext. The ciphertext holds names and individually encrypted values.
 const magic = Buffer.from('SCT1')
+const cleanupMagic = Buffer.from('SCG1')
 const vaultDirectoryName = '.sct'
 const secretsFileName = 'secrets.sct'
 
@@ -24,6 +25,17 @@ interface StoredSecret {
   value: string
   transferId?: string
   grant?: RelayGrant
+}
+
+export interface GrantCleanupOutcome {
+  id: string
+  transferId: string
+  projectId: string
+  secretId: string
+  expiredAt: number
+  cleanedAt: number | null
+  status: 'removed' | 'failed'
+  error: string | null
 }
 
 export class Vault {
@@ -49,6 +61,7 @@ export class Vault {
     } catch (error) {
       throw new Error(`Cannot create the vault folders at ${this.location()}.`, { cause: error })
     }
+    await this.cleanupExpiredGrants()
   }
 
   location(): string {
@@ -302,6 +315,48 @@ export class Vault {
     })
   }
 
+  cleanupExpiredGrants(now = Date.now()): Promise<GrantCleanupOutcome[]> {
+    return this.serialize(async () => {
+      if (!Number.isSafeInteger(now)) throw new Error('The grant cleanup time is invalid.')
+      this.root = await this.readRoot()
+      const outcomes = await this.readGrantCleanupOutcomes()
+      let changed = false
+      for (const project of (await this.projects.list()).filter((saved) => isProjectName(saved.name))) {
+        let secrets: StoredSecret[]
+        try {
+          secrets = await this.readSecrets(project)
+        } catch {
+          // Cleanup cannot identify grants in an unreadable vault. Normal project access reports the storage error.
+          continue
+        }
+        for (const secret of secrets.filter((saved) => saved.grant?.accessExpiresAt !== null &&
+          saved.grant?.accessExpiresAt !== undefined && saved.grant.accessExpiresAt <= now)) {
+          const previous = outcomes.find((outcome) => outcome.transferId === secret.transferId && outcome.secretId === secret.id)
+          try {
+            secrets = await this.removeSecret(project, secrets, secret.id)
+            replaceCleanupOutcome(outcomes, previous, {
+              id: previous?.id ?? randomUUID(), transferId: secret.transferId ?? '', projectId: project.id, secretId: secret.id,
+              expiredAt: secret.grant?.accessExpiresAt ?? now, cleanedAt: now, status: 'removed', error: null
+            })
+          } catch (error) {
+            replaceCleanupOutcome(outcomes, previous, {
+              id: previous?.id ?? randomUUID(), transferId: secret.transferId ?? '', projectId: project.id, secretId: secret.id,
+              expiredAt: secret.grant?.accessExpiresAt ?? now, cleanedAt: null, status: 'failed',
+              error: error instanceof Error ? error.message : 'The expired secret could not be removed.'
+            })
+          }
+          changed = true
+        }
+      }
+      if (changed) await this.writeGrantCleanupOutcomes(outcomes)
+      return outcomes
+    })
+  }
+
+  grantCleanupOutcomes(): Promise<GrantCleanupOutcome[]> {
+    return this.serialize(() => this.readGrantCleanupOutcomes())
+  }
+
   private async decryptSecret(project: Project, secret: StoredSecret): Promise<Buffer> {
     requireActiveGrant(secret)
     const key = await this.readKey(project, secret.id)
@@ -463,6 +518,44 @@ export class Vault {
     await this.entry(project, 'file').setSecret(key)
     return key
   }
+
+  private async readGrantCleanupOutcomes(): Promise<GrantCleanupOutcome[]> {
+    try {
+      const contents = await readFile(join(dirname(this.settingsFile), 'grant-cleanup.sct'))
+      const sealed = decodeFile(cleanupMagic, contents)
+      const saved = await new AsyncEntry(this.service, 'grant-cleanup').getSecret()
+      if (!sealed || !saved) throw new Error('The cleanup history or its Keychain key is missing.')
+      const key = Buffer.from(saved)
+      let plaintext: Buffer | undefined
+      try {
+        plaintext = open(key, sealed, Buffer.from('grant-cleanup'))
+        const parsed: unknown = JSON.parse(plaintext.toString('utf8'))
+        if (!Array.isArray(parsed) || !parsed.every(isGrantCleanupOutcome)) throw new Error('The cleanup history is invalid.')
+        return parsed
+      } finally {
+        key.fill(0)
+        plaintext?.fill(0)
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw new Error('Cannot read the encrypted grant cleanup history.', { cause: error })
+    }
+  }
+
+  private async writeGrantCleanupOutcomes(outcomes: GrantCleanupOutcome[]): Promise<void> {
+    const entry = new AsyncEntry(this.service, 'grant-cleanup')
+    const saved = await entry.getSecret()
+    const key = saved ? Buffer.from(saved) : randomBytes(32)
+    try {
+      if (!saved) await entry.setSecret(key)
+      await mkdir(dirname(this.settingsFile), { recursive: true, mode: 0o700 })
+      await writeFile(`${join(dirname(this.settingsFile), 'grant-cleanup.sct')}.tmp`,
+        encodeFile(cleanupMagic, seal(key, Buffer.from(JSON.stringify(outcomes)), Buffer.from('grant-cleanup'))), { mode: 0o600 })
+      await rename(`${join(dirname(this.settingsFile), 'grant-cleanup.sct')}.tmp`, join(dirname(this.settingsFile), 'grant-cleanup.sct'))
+    } finally {
+      key.fill(0)
+    }
+  }
 }
 
 // Additional authenticated data binds each ciphertext to its project and secret, so a copied file or entry fails to open.
@@ -498,6 +591,20 @@ function isRelayGrant(value: unknown): value is RelayGrant {
   const grant = value as Record<string, unknown>
   return (grant.accessExpiresAt === null || Number.isSafeInteger(grant.accessExpiresAt)) &&
     typeof grant.injectionOnly === 'boolean'
+}
+
+function isGrantCleanupOutcome(value: unknown): value is GrantCleanupOutcome {
+  if (typeof value !== 'object' || value === null) return false
+  const outcome = value as Record<string, unknown>
+  return ['id', 'transferId', 'projectId', 'secretId'].every((field) => typeof outcome[field] === 'string') &&
+    Number.isSafeInteger(outcome.expiredAt) && (outcome.cleanedAt === null || Number.isSafeInteger(outcome.cleanedAt)) &&
+    (outcome.status === 'removed' || outcome.status === 'failed') && (outcome.error === null || typeof outcome.error === 'string')
+}
+
+function replaceCleanupOutcome(outcomes: GrantCleanupOutcome[], previous: GrantCleanupOutcome | undefined,
+  outcome: GrantCleanupOutcome): void {
+  if (!previous) outcomes.push(outcome)
+  else outcomes[outcomes.indexOf(previous)] = outcome
 }
 
 function requireActiveGrant(secret: StoredSecret, now = Date.now()): void {

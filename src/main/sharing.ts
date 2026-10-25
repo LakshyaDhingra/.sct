@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { createIdentity, decodeIdentity, decryptTransfer, describeDevice, encodeIdentity, encryptTransfer,
   pairingCode, readDeviceCard, readEnvelope, readObject, transferLimit } from './transfer'
 import type { DeviceCard, DeviceIdentity, TransferEnvelope } from './transfer'
-import { openReceipt, openTransfer as openRelayEnvelope, sealReceipt, sealTransfer } from './envelope'
+import { openExpiryNotice, openReceipt, openTransfer as openRelayEnvelope, sealExpiryNotice, sealReceipt, sealTransfer } from './envelope'
 import type { RelayPeerKeys, SealedTransfer } from './envelope'
 import type { Vault } from './vault'
 import type { RelayTransferInput } from '../shared/relay'
@@ -109,6 +109,17 @@ export class Sharing {
 
   async verifyRelayReceipt(identity: string, recipient: RelayPeerKeys, transferId: string, receipt: Buffer): Promise<void> {
     openReceipt({ identity, keys: await this.getIdentity() }, recipient, transferId, receipt)
+  }
+
+  async prepareRelayExpiryNotice(identity: string, sender: RelayPeerKeys, transferId: string,
+    expiredAt: number, secretCount: number): Promise<Buffer> {
+    return sealExpiryNotice({ identity, keys: await this.getIdentity() }, sender, transferId,
+      { status: 'expired', expiredAt, secretCount })
+  }
+
+  async verifyRelayExpiryNotice(identity: string, recipient: RelayPeerKeys, transferId: string,
+    notice: Buffer): Promise<number> {
+    return openExpiryNotice({ identity, keys: await this.getIdentity() }, recipient, transferId, notice).expiredAt
   }
 
   deviceCardFile(): Promise<string> {

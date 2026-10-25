@@ -36,6 +36,7 @@ import {
 // Import all reducer arg schemas
 import AcknowledgeReducer from "./acknowledge_reducer";
 import ConfirmPairReducer from "./confirm_pair_reducer";
+import PublishExpiryNoticeReducer from "./publish_expiry_notice_reducer";
 import PublishSecretReducer from "./publish_secret_reducer";
 import RegisterDeviceReducer from "./register_device_reducer";
 import RemovePairReducer from "./remove_pair_reducer";
@@ -44,6 +45,7 @@ import RequestPairReducer from "./request_pair_reducer";
 // Import all procedure arg schemas
 
 // Import all table schema definitions
+import MyExpiryNoticesRow from "./my_expiry_notices_table";
 import MyInboxRow from "./my_inbox_table";
 import MyPeersRow from "./my_peers_table";
 import MySentRow from "./my_sent_table";
@@ -52,6 +54,13 @@ import MySentRow from "./my_sent_table";
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  myExpiryNotices: __table({
+    name: 'my_expiry_notices',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyExpiryNoticesRow),
   myInbox: __table({
     name: 'my_inbox',
     indexes: [
@@ -79,6 +88,7 @@ const tablesSchema = __schema({
 const reducersSchema = __reducers(
   __reducerSchema("acknowledge", AcknowledgeReducer),
   __reducerSchema("confirm_pair", ConfirmPairReducer),
+  __reducerSchema("publish_expiry_notice", PublishExpiryNoticeReducer),
   __reducerSchema("publish_secret", PublishSecretReducer),
   __reducerSchema("register_device", RegisterDeviceReducer),
   __reducerSchema("remove_pair", RemovePairReducer),

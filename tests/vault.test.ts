@@ -104,7 +104,7 @@ test('internal reads clear plaintext after asynchronous success and failure', as
 })
 
 test('an expired received grant blocks new secret access', async (t) => {
-  const { open, folder } = await setup(t)
+  const { root, open, keychainKey, folder } = await setup(t)
   const vault = await open()
   const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
   const [secret] = await vault.importSecrets(project.id, [{ name: 'TOKEN', value: 'received value' }],
@@ -113,6 +113,21 @@ test('an expired received grant blocks new secret access', async (t) => {
   await assert.rejects(vault.withSecret(secret, () => assert.fail('An expired value must not reach the consumer.')), /expired access grant/)
   await assert.rejects(vault.withSelectedSecrets(project.id, [secret.id], () => undefined), /expired access grant/)
   await assert.rejects(vault.withProjectEnvironment(project.id, () => undefined), /expired access grant/)
+  assert.ok(await keychainKey(`${project.id}/${secret.id}`))
+  const outcomes = await vault.cleanupExpiredGrants()
+  assert.deepEqual(outcomes.map(({ transferId, status }) => ({ transferId, status })),
+    [{ transferId: 'relay:expired', status: 'removed' }])
+  assert.deepEqual(await vault.listSecrets(), [])
+  assert.equal(await keychainKey(`${project.id}/${secret.id}`), null)
+  assert.ok(await keychainKey('grant-cleanup'))
+  const history = await readFile(join(root, 'app-data', 'grant-cleanup.sct'))
+  assert.ok(!history.includes('TOKEN') && !history.includes('received value') && !history.includes('relay:expired'))
+  assert.deepEqual(await (await open()).grantCleanupOutcomes(), outcomes)
+  const [restartSecret] = await vault.importSecrets(project.id, [{ name: 'RESTART_TOKEN', value: 'restart value' }],
+    'relay:restart', async () => undefined, { accessExpiresAt: Date.now() - 1, injectionOnly: true })
+  assert.ok(restartSecret)
+  assert.deepEqual(await (await open()).listSecrets(), [])
+  assert.equal(await keychainKey(`${project.id}/${restartSecret.id}`), null)
 })
 
 test('internal reads reject invalid references, other projects, and missing or incorrect keys', async (t) => {

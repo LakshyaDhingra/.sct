@@ -20,6 +20,12 @@ export interface RelayReceiptContents {
   secretCount: number
 }
 
+export interface RelayExpiryContents {
+  status: 'expired'
+  expiredAt: number
+  secretCount: number
+}
+
 // Relay identities and device IDs are 64 hexadecimal characters. Keys, IVs, tags, ciphertext, and signatures are base64.
 export interface RelayTransfer {
   format: 'sct-relay'
@@ -51,6 +57,23 @@ export interface RelayReceipt {
   version: 1
   kind: 'receipt'
   // The ID of the transfer that this receipt confirms.
+  correlationId: string
+  sender: string
+  senderDevice: string
+  recipient: string
+  createdAt: number
+  ephemeralKey: string
+  iv: string
+  tag: string
+  ciphertext: string
+  signature: string
+}
+
+export interface RelayExpiryNotice {
+  format: 'sct-relay'
+  version: 1
+  kind: 'expiry'
+  // The ID of the transfer whose local grant expired.
   correlationId: string
   sender: string
   senderDevice: string

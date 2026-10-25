@@ -1,5 +1,5 @@
 import { schema, table, t, SenderError, type InferSchema, type ReducerCtx } from 'spacetimedb/server'
-import type { Identity, Timestamp } from 'spacetimedb'
+import { ScheduleAt, Timestamp, type Identity } from 'spacetimedb'
 
 // All tables are private. Clients read rows only through the views below.
 // The relay never reads payload or wrappedKey. Issue #16 defines their contents.
@@ -7,6 +7,9 @@ import type { Identity, Timestamp } from 'spacetimedb'
 const PairStatus = t.enum('PairStatus', { Pending: t.unit(), Verified: t.unit() })
 const DeliveryStatus = t.enum('DeliveryStatus', { Pending: t.unit(), Received: t.unit() })
 const deliveryLimitMicros = 7n * 24n * 60n * 60n * 1_000_000n
+const retentionMicros = 30n * 24n * 60n * 60n * 1_000_000n
+const maintenanceMicros = 60n * 1_000_000n
+const noticeLimit = 65_536
 
 const device = table(
   { name: 'device' },
@@ -73,7 +76,29 @@ const receipt = table(
   }
 )
 
-const spacetimedb = schema({ device, pair, message, delivery, receipt })
+// A recipient encrypts and signs this notice for the original sender after local grant cleanup.
+const expiryNotice = table(
+  { name: 'expiry_notice' },
+  {
+    id: t.string().primaryKey(),
+    correlationId: t.string().index('btree'),
+    sender: t.identity().index('btree'),
+    recipient: t.identity().index('btree'),
+    notice: t.byteArray(),
+    createdAt: t.timestamp(),
+    retainUntil: t.timestamp()
+  }
+)
+
+const maintenance = table(
+  { name: 'maintenance' },
+  {
+    id: t.u64().primaryKey(),
+    scheduledAt: t.scheduleAt()
+  }
+)
+
+const spacetimedb = schema({ device, pair, message, delivery, receipt, expiryNotice, maintenance })
 export default spacetimedb
 
 type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>
@@ -83,6 +108,7 @@ const RecipientKey = t.object('RecipientKey', { recipient: t.identity(), wrapped
 export const registerDevice = spacetimedb.reducer(
   { name: t.string(), encryptionPublicKey: t.byteArray(), signingPublicKey: t.byteArray() },
   (ctx, { name, encryptionPublicKey, signingPublicKey }) => {
+    ensureMaintenance(ctx)
     if (!name.trim()) throw new SenderError('The device name is empty.')
     if (!encryptionPublicKey.length || !signingPublicKey.length) throw new SenderError('A device public key is empty.')
     const existing = ctx.db.device.identity.find(ctx.sender)
@@ -124,6 +150,7 @@ export const removePair = spacetimedb.reducer({ pairId: t.u64() }, (ctx, { pairI
 export const publishSecret = spacetimedb.reducer(
   { id: t.string(), payload: t.byteArray(), deliverBy: t.timestamp(), recipients: t.array(RecipientKey) },
   (ctx, { id, payload, deliverBy, recipients }) => {
+    ensureMaintenance(ctx)
     requireDevice(ctx, ctx.sender)
     if (!id) throw new SenderError('The message ID is empty.')
     if (!payload.length) throw new SenderError('The message payload is empty.')
@@ -151,9 +178,65 @@ export const acknowledge = spacetimedb.reducer({ messageId: t.string(), receipt:
   if (!row) throw new SenderError('No delivery exists for this device.')
   if (!receipt.length) throw new SenderError('The receipt is empty.')
   if (row.status.tag === 'Received') return
+  const sent = ctx.db.message.id.find(messageId)
+  if (!sent || sent.deliverBy.microsSinceUnixEpoch <= ctx.timestamp.microsSinceUnixEpoch) {
+    throw new SenderError('The delivery deadline passed.')
+  }
   ctx.db.delivery.id.update({ ...row, status: { tag: 'Received' }, receivedAt: ctx.timestamp })
   ctx.db.receipt.insert({ deliveryId: row.id, receipt })
 })
+
+export const publishExpiryNotice = spacetimedb.reducer(
+  { id: t.string(), correlationId: t.string(), recipient: t.identity(), notice: t.byteArray() },
+  (ctx, { id, correlationId, recipient, notice }) => {
+    ensureMaintenance(ctx)
+    requireDevice(ctx, ctx.sender)
+    requireDevice(ctx, recipient)
+    if (!id) throw new SenderError('The expiry notice ID is empty.')
+    if (!correlationId) throw new SenderError('The expiry notice correlation ID is empty.')
+    if (!notice.length || notice.length > noticeLimit) throw new SenderError('The expiry notice has an invalid size.')
+    if (findPair(ctx, ctx.sender, recipient)?.status.tag !== 'Verified') {
+      throw new SenderError('The expiry notice recipient has no verified pair with this device.')
+    }
+    const existing = ctx.db.expiryNotice.id.find(id)
+    if (existing) {
+      if (existing.correlationId !== correlationId || !existing.sender.equals(ctx.sender) ||
+        !existing.recipient.equals(recipient) || !sameBytes(existing.notice, notice)) {
+        throw new SenderError('The expiry notice ID is already used by a different notice.')
+      }
+      return
+    }
+    ctx.db.expiryNotice.insert({ id, correlationId, sender: ctx.sender, recipient, notice, createdAt: ctx.timestamp,
+      retainUntil: new Timestamp(ctx.timestamp.microsSinceUnixEpoch + retentionMicros) })
+  }
+)
+
+export const maintainRelay = spacetimedb.reducer(
+  { onSchedule: maintenance },
+  { schedule: maintenance.rowType },
+  (ctx) => {
+    if (!ctx.sender.equals(ctx.databaseIdentity) || ctx.connectionId !== null) {
+      throw new SenderError('Only the relay scheduler can run maintenance.')
+    }
+    for (const row of ctx.db.delivery.iter()) {
+      const sent = ctx.db.message.id.find(row.messageId)
+      if (row.status.tag === 'Pending' && (!sent || sent.deliverBy.microsSinceUnixEpoch <= ctx.timestamp.microsSinceUnixEpoch)) {
+        ctx.db.delivery.id.delete(row.id)
+      }
+    }
+    for (const sent of ctx.db.message.iter()) {
+      if (sent.deliverBy.microsSinceUnixEpoch + retentionMicros > ctx.timestamp.microsSinceUnixEpoch) continue
+      for (const row of ctx.db.delivery.byMessageRecipient.filter(sent.id)) {
+        ctx.db.receipt.deliveryId.delete(row.id)
+        ctx.db.delivery.id.delete(row.id)
+      }
+      ctx.db.message.id.delete(sent.id)
+    }
+    for (const notice of ctx.db.expiryNotice.iter()) {
+      if (notice.retainUntil.microsSinceUnixEpoch <= ctx.timestamp.microsSinceUnixEpoch) ctx.db.expiryNotice.id.delete(notice.id)
+    }
+  }
+)
 
 export const myInbox = spacetimedb.view(
   { name: 'my_inbox', public: true },
@@ -196,6 +279,22 @@ export const mySent = spacetimedb.view(
       receipt: ctx.db.receipt.deliveryId.find(row.id)?.receipt
     }))
   )
+)
+
+export const myExpiryNotices = spacetimedb.view(
+  { name: 'my_expiry_notices', public: true },
+  t.array(t.object('ExpiryNoticeItem', {
+    id: t.string(),
+    correlationId: t.string(),
+    sender: t.identity(),
+    notice: t.byteArray(),
+    createdAt: t.timestamp(),
+    retainUntil: t.timestamp()
+  })),
+  (ctx) => [...ctx.db.expiryNotice.recipient.filter(ctx.sender)].map((row) => ({
+    id: row.id, correlationId: row.correlationId, sender: row.sender, notice: row.notice,
+    createdAt: row.createdAt, retainUntil: row.retainUntil
+  }))
 )
 
 export const myPeers = spacetimedb.view(
@@ -261,6 +360,11 @@ function requireSamePublication(ctx: Ctx, existing: { id: string; sender: Identi
     existing.deliverBy.microsSinceUnixEpoch !== deliverBy.microsSinceUnixEpoch || !sameRecipients) {
     throw new SenderError('The message ID is already used by a different publication.')
   }
+}
+
+function ensureMaintenance(ctx: Ctx) {
+  if (ctx.db.maintenance.id.find(1n)) return
+  ctx.db.maintenance.insert({ id: 1n, scheduledAt: ScheduleAt.interval(maintenanceMicros) })
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array) {

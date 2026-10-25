@@ -38,6 +38,27 @@ export const Device = __t.object("Device", {
 });
 export type Device = __Infer<typeof Device>;
 
+export const ExpiryNotice = __t.object("ExpiryNotice", {
+  id: __t.string(),
+  correlationId: __t.string(),
+  sender: __t.identity(),
+  recipient: __t.identity(),
+  notice: __t.byteArray(),
+  createdAt: __t.timestamp(),
+  retainUntil: __t.timestamp(),
+});
+export type ExpiryNotice = __Infer<typeof ExpiryNotice>;
+
+export const ExpiryNoticeItem = __t.object("ExpiryNoticeItem", {
+  id: __t.string(),
+  correlationId: __t.string(),
+  sender: __t.identity(),
+  notice: __t.byteArray(),
+  createdAt: __t.timestamp(),
+  retainUntil: __t.timestamp(),
+});
+export type ExpiryNoticeItem = __Infer<typeof ExpiryNoticeItem>;
+
 export const InboxItem = __t.object("InboxItem", {
   messageId: __t.string(),
   sender: __t.identity(),
@@ -48,6 +69,12 @@ export const InboxItem = __t.object("InboxItem", {
 });
 export type InboxItem = __Infer<typeof InboxItem>;
 
+export const Maintenance = __t.object("Maintenance", {
+  id: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type Maintenance = __Infer<typeof Maintenance>;
+
 export const Message = __t.object("Message", {
   id: __t.string(),
   sender: __t.identity(),
@@ -56,6 +83,9 @@ export const Message = __t.object("Message", {
   deliverBy: __t.timestamp(),
 });
 export type Message = __Infer<typeof Message>;
+
+export const MyExpiryNotices = __t.object("MyExpiryNotices", {});
+export type MyExpiryNotices = __Infer<typeof MyExpiryNotices>;
 
 export const MyInbox = __t.object("MyInbox", {});
 export type MyInbox = __Infer<typeof MyInbox>;

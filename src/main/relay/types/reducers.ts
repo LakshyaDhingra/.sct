@@ -8,6 +8,7 @@ import { type Infer as __Infer } from "spacetimedb";
 // Import all reducer arg schemas
 import AcknowledgeReducer from "../acknowledge_reducer";
 import ConfirmPairReducer from "../confirm_pair_reducer";
+import PublishExpiryNoticeReducer from "../publish_expiry_notice_reducer";
 import PublishSecretReducer from "../publish_secret_reducer";
 import RegisterDeviceReducer from "../register_device_reducer";
 import RemovePairReducer from "../remove_pair_reducer";
@@ -15,6 +16,7 @@ import RequestPairReducer from "../request_pair_reducer";
 
 export type AcknowledgeParams = __Infer<typeof AcknowledgeReducer>;
 export type ConfirmPairParams = __Infer<typeof ConfirmPairReducer>;
+export type PublishExpiryNoticeParams = __Infer<typeof PublishExpiryNoticeReducer>;
 export type PublishSecretParams = __Infer<typeof PublishSecretReducer>;
 export type RegisterDeviceParams = __Infer<typeof RegisterDeviceReducer>;
 export type RemovePairParams = __Infer<typeof RemovePairReducer>;
