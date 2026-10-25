@@ -270,6 +270,10 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .handoff-title { color: var(--color-ink); font-size: 12px; font-weight: 500; }
 .handoff-detail { flex-shrink: 1; color: var(--color-ink-2); font-size: 9px; }
 .handoff-detail .sharing-scramble { color: inherit; }
+.handoff-device { grid-template-rows: auto auto 1fr; gap: 4px; border-left-width: 4px; }
+.handoff-fingerprint { display: grid; grid-template-columns: repeat(4, max-content); justify-content: space-between; align-content: end; row-gap: 1px; color: var(--color-ink-2); font-size: 9px; line-height: 1.2; }
+.handoff-device-back { justify-content: center; border-left-width: 4px; padding: 12px; }
+.handoff-device-back .handoff-back-text { margin: 0; padding: 0; white-space: normal; }
 .handoff-back { display: flex; flex-direction: column; gap: 8px; transform: rotateY(180deg); padding-bottom: 10px; }
 .handoff-stripe { height: 22px; margin-top: 12px; background: var(--color-rule-2); }
 .handoff-signature { height: 14px; margin-inline: 12px; width: 60%; background: repeating-linear-gradient(90deg, var(--color-rule) 0 4px, var(--color-paper) 4px 8px); }

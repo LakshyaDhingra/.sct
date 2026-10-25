@@ -13,9 +13,11 @@ const holdAfterEnd = 1500
 // arrived: .sct imported a received transfer, so the object lands in the project.
 export type HandoffStage = 'prepare' | 'wait' | 'handed' | 'arrived'
 
-// A mock Wallet card travels as a card. Secrets and public keys travel as a key.
+// A mock Wallet card travels as a credit card. A device card shows the real device name and fingerprint.
+// Secrets travel as a key.
 export type HandoffObject =
   | { shape: 'card'; label: string; title: ReactNode; detail: ReactNode; back: string }
+  | { shape: 'device'; name: string; fingerprint: string }
   | { shape: 'key'; title: ReactNode; detail: ReactNode }
 
 // A square-cut key: a bow with a hole, a shaft, and three teeth. The even-odd rule cuts the hole.
@@ -98,6 +100,17 @@ export function HandoffModal({ heading, from, to, stage, object, onDone }: {
               <span className="handoff-stripe" />
               <span className="handoff-signature" />
               <span className="handoff-back-text">{object.back}</span>
+            </div>
+          </> : object.shape === 'device' ? <>
+            <div className="handoff-face handoff-front handoff-device">
+              <span className="handoff-kind">.sct device card</span>
+              <span className="handoff-title">{object.name}</span>
+              <span className="handoff-fingerprint">
+                {object.fingerprint.split(' ').map((group, index) => <span key={index}>{group}</span>)}
+              </span>
+            </div>
+            <div className="handoff-face handoff-back handoff-device-back">
+              <span className="handoff-back-text">Public keys only. Compare the pairing code before you confirm.</span>
             </div>
           </> : <>
             <span className="handoff-key">

@@ -600,11 +600,7 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
           <button type="button" className={pairing || peers.length > 0 ? 'secondary' : undefined} disabled={busy}
             onClick={() => { void shareCard() }}>Send my card to…</button>
           {cardStage && <HandoffModal heading="Sending your device card" from="This Mac" to="Their Mac" stage={cardStage}
-            onDone={() => setCardStage(null)} object={{
-              shape: 'key',
-              title: device.name,
-              detail: 'Public keys only'
-            }} />}
+            onDone={() => setCardStage(null)} object={{ shape: 'device', name: device.name, fingerprint: device.fingerprint }} />}
         </li>
         <li>
           <h3>Import their device card</h3>
