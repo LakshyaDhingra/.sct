@@ -5,13 +5,13 @@ import { join } from 'node:path'
 import { Identity, Timestamp } from 'spacetimedb'
 import { DbConnection } from './relay'
 import { decodeFile, encodeFile, open, seal } from './seal'
-import { readTransfer } from './envelope'
+import { clockSkew, deliveryLimit, readTransfer } from './envelope'
 import type { RelayPeerKeys, SealedTransfer } from './envelope'
 import type { RelayTransferAcceptance, RelayTransferPreview } from './sharing'
 import { readDeviceCard, relayPairingCode } from './transfer'
 import type { DeviceCard } from './transfer'
 import type { SecretMetadata } from '../shared/secrets'
-import type { RelayAcceptInput, RelayConnection, RelayInboxItem, RelayPeer, RelaySentItem, RelayState, RelayTransferInput } from '../shared/relay'
+import type { RelayAcceptInput, RelayConnection, RelayInboxItem, RelayPeer, RelayQueueInput, RelaySentItem, RelayState, RelayTransferInput } from '../shared/relay'
 
 export interface RelayServer {
   uri: string
@@ -182,7 +182,8 @@ export class Relay {
   // Returns the message ID, so the window can follow the delivery state of this transfer.
   queueTransfer(value: unknown): Promise<string> {
     return this.serialize(async () => {
-      const input = requireTransferInput(value)
+      // The relay checks the deadline against its own clock, so the margin allows a sender clock that is slightly ahead.
+      const input = { ...requireQueueInput(value), deliverBy: Date.now() + deliveryLimit - clockSkew }
       const identity = this.cache.identity
       if (!identity) throw new Error('Connect this device to the relay before you queue a transfer.')
       const peer = this.cache.peers.find((saved) => saved.identity === input.recipient)
@@ -306,7 +307,8 @@ export class Relay {
         this.attempt = 0
         this.error = null
         this.update('connected')
-        if (this.connection) void this.serialize(() => this.processPending(this.connection as DbConnection))
+        // A relay data reset deletes the device row, so each reconnect registers this device again.
+        if (this.connection) void this.register(this.connection)
       })
       .onConnectError((_context, error, nextAttempt) => this.lost(error, nextAttempt))
       .onDisconnect((_context, error, nextAttempt) => this.lost(error, nextAttempt))
@@ -326,6 +328,10 @@ export class Relay {
         this.changed()
       }
     }
+    await this.register(connection)
+  }
+
+  private async register(connection: DbConnection): Promise<void> {
     try {
       const card = await this.deviceCard()
       await connection.reducers.registerDevice({
@@ -590,8 +596,10 @@ export class Relay {
     if (!saved) await this.entry(`${name}/${this.serverName()}`).setSecret(key)
     const file = this.sealedFile(name)
     await mkdir(this.directory, { recursive: true, mode: 0o700 })
-    await writeFile(`${file}.tmp`, encodeFile(magic, seal(key, Buffer.from(JSON.stringify(value)), this.sealedData(name))), { mode: 0o600 })
-    await rename(`${file}.tmp`, file)
+    // The app and agent sessions share this folder, so each write uses its own temporary file.
+    const temporary = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+    await writeFile(temporary, encodeFile(magic, seal(key, Buffer.from(JSON.stringify(value)), this.sealedData(name))), { mode: 0o600 })
+    await rename(temporary, file)
   }
 
   // Each relay server has its own identity, so each server has its own files. A test server cannot replace the files of the live relay.
@@ -672,20 +680,18 @@ function requirePairId(pairId: unknown): string {
   return pairId
 }
 
-function requireTransferInput(value: unknown): RelayTransferInput {
+function requireQueueInput(value: unknown): RelayQueueInput {
   if (typeof value !== 'object' || value === null || !('projectId' in value) || typeof value.projectId !== 'string' ||
     !('secretIds' in value) || !Array.isArray(value.secretIds) || !value.secretIds.every((id) => typeof id === 'string') ||
     !('recipient' in value) || typeof value.recipient !== 'string' || !/^[0-9a-f]{64}$/.test(value.recipient) ||
-    !('deliverBy' in value) || !Number.isSafeInteger(value.deliverBy) ||
     !('accessExpiresAt' in value) || (value.accessExpiresAt !== null && !Number.isSafeInteger(value.accessExpiresAt)) ||
     !('injectionOnly' in value) || typeof value.injectionOnly !== 'boolean') {
-    throw new Error('Select a project, secrets, verified recipient, and valid deadlines.')
+    throw new Error('Select a project, secrets, verified recipient, and a valid access deadline.')
   }
   return {
     projectId: value.projectId,
     secretIds: value.secretIds,
     recipient: value.recipient,
-    deliverBy: value.deliverBy as number,
     accessExpiresAt: value.accessExpiresAt as number | null,
     injectionOnly: value.injectionOnly
   }

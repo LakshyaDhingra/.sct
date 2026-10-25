@@ -273,7 +273,8 @@ function RelayPairing({ state, busy, run }: { state: RelayState; busy: boolean; 
                 })
               }}>Remove</button>
             </div>
-            {peer.code && peer.trust !== 'verified' && <div className="relay-code">
+            {/* Saved keys can outlive a relay pair, so a pending request from the other device still needs confirmation. */}
+            {peer.code && (peer.trust !== 'verified' || (peer.status === 'Pending' && !peer.requestedByMe)) && <div className="relay-code">
               <p aria-label={`Pairing code for ${peer.name}`}>{peer.code}</p>
               <label className="check-field">
                 <input type="checkbox" checked={compared.has(peer.pairId)} onChange={(event) => setCompared((current) => {
@@ -317,7 +318,6 @@ function RelaySend({ projectId, projects, secrets, state, busy, run }: {
   const [source, setSource] = useState(projectId ?? '')
   const [recipient, setRecipient] = useState(recipients.length === 1 ? recipients[0]?.identity ?? '' : '')
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
-  const [deliverBy, setDeliverBy] = useState('')
   const [accessExpiresAt, setAccessExpiresAt] = useState('')
   const [injectionOnly, setInjectionOnly] = useState(true)
   const [handoff, setHandoff] = useState<RelayHandoffState | null>(null)
@@ -334,7 +334,6 @@ function RelaySend({ projectId, projects, secrets, state, busy, run }: {
         projectId: source,
         secretIds: [...selected],
         recipient,
-        deliverBy: new Date(deliverBy).getTime(),
         accessExpiresAt: accessExpiresAt ? new Date(accessExpiresAt).getTime() : null,
         injectionOnly
       })
@@ -367,25 +366,16 @@ function RelaySend({ projectId, projects, secrets, state, busy, run }: {
             {recipients.map((peer) => <option key={peer.identity} value={peer.identity}>{peer.name}</option>)}
           </select>
           <SecretSelection secrets={secrets} source={source} selected={selected} onChange={setSelected} />
-          <div className="relay-deadlines">
-            <div>
-              <label htmlFor="relay-deliver-by">Deliver before</label>
-              <input id="relay-deliver-by" name="deliverBy" type="datetime-local" required value={deliverBy}
-                onChange={(event) => setDeliverBy(event.target.value)} />
-            </div>
-            <div>
-              <label htmlFor="relay-access-expires">Access expires (optional)</label>
-              <input id="relay-access-expires" name="accessExpiresAt" type="datetime-local" value={accessExpiresAt}
-                onChange={(event) => setAccessExpiresAt(event.target.value)} />
-            </div>
-          </div>
+          <label htmlFor="relay-access-expires">Access expires (optional)</label>
+          <input id="relay-access-expires" name="accessExpiresAt" type="datetime-local" value={accessExpiresAt}
+            onChange={(event) => setAccessExpiresAt(event.target.value)} />
           <label className="check-field">
             <input type="checkbox" checked={injectionOnly} onChange={(event) => setInjectionOnly(event.target.checked)} />
             Allow command injection only. Block reveal, copy, and reshare.
           </label>
           <p className="field-help">Queued transfers stay encrypted on this Mac. Secret values never enter this screen.</p>
           <div className="form-actions">
-            <button type="submit" disabled={busy || !source || !recipient || selected.size === 0 || !deliverBy}>Queue encrypted transfer</button>
+            <button type="submit" disabled={busy || !source || !recipient || selected.size === 0}>Queue encrypted transfer</button>
           </div>
         </fieldset>
       </form>}

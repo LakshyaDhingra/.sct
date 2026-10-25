@@ -8,7 +8,7 @@ import type { RelayGrant, RelayReceipt, RelayReceiptContents, RelayTransfer, Rel
 export const deliveryLimit = 7 * 24 * 60 * 60 * 1000
 const recipientLimit = 100
 // A sender clock can be slightly ahead of the recipient clock.
-const clockSkew = 60_000
+export const clockSkew = 60_000
 
 // This device: its relay identity and its device keys.
 export interface RelaySelf {
