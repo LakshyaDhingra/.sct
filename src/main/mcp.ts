@@ -21,7 +21,7 @@ export async function runMcp(args: string[], submit: AgentSubmit, skills: string
     const schema: ZodType<Record<string, unknown>> = tool.schema
     server.registerTool(operation, { description: tool.description, inputSchema: schema,
       annotations: { readOnlyHint: ['list_secrets', 'describe_secret', 'sharing_state', 'relay_status'].includes(operation),
-        destructiveHint: operation === 'delete_secret', openWorldHint: ['send_secrets_to', 'pair_device', 'relay_status'].includes(operation) }
+        destructiveHint: operation === 'delete_secret', openWorldHint: ['send_secrets_to', 'pair_device', 'relay_status', 'request_remote_demo'].includes(operation) }
     }, async (input, context) => {
       if (operation === 'run_demo' && typeof input.secretId !== 'string') {
         return { isError: true, content: [{ type: 'text', text: 'run_demo requires a saved secret ID. Plaintext input is available only through the private CLI stdin channel.' }] }

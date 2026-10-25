@@ -41,8 +41,12 @@ export const agentTools = {
     schema: z.strictObject({ projectId, secretIds: z.array(z.uuid()).min(1).max(1000), recipientId: z.string().min(1), expiresAt })
   },
   relay_status: {
-    description: 'Read relay connection and cached peer, inbox, and delivery metadata after local approval. Cached rows do not prove current delivery. This does not pair or send.',
+    description: 'Read relay connection and cached peer, inbox, delivery, and remote task metadata after local approval. Cached rows do not prove current delivery. This does not pair or send.',
     schema: z.strictObject({ expiresAt })
+  },
+  request_remote_demo: {
+    description: 'Ask the recipient of a received relay transfer to run the fixed environment demo with that grant, after local approval. The recipient must also approve on its Mac. The .sct app sends the request. Read the outcome later with relay_status.',
+    schema: z.strictObject({ grantId: z.uuid().describe('Message ID of a relay transfer that this Mac sent and the recipient imported.'), expiresAt })
   }
 } as const
 
@@ -54,6 +58,7 @@ export type AgentInput = {
 export type AgentResult = Project | SecretMetadata | SecretMetadata[] | SharingState | SharingDevice | RelayState
   | { deleted: string } | { exitCode: number; secretPresent: boolean }
   | { path: string; status: 'public-device-card' | 'awaiting-transport'; recipientId?: string }
+  | { taskId: string; status: 'queued' }
 
 export interface AgentOutcome {
   requestId: string

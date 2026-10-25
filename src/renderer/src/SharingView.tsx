@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import type { Project } from '../../shared/projects'
 import type { SecretMetadata } from '../../shared/secrets'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../../shared/sharing'
-import type { RelayInboxItem, RelayPeer, RelaySentItem, RelayState } from '../../shared/relay'
+import type { RelayInboxItem, RelayPeer, RelaySentItem, RelayState, RelayTaskDecision, RelayTaskItem } from '../../shared/relay'
 import { errorText, StatusLine, useOperation } from './operation'
 import { HandoffModal, Scramble } from './SharingMotion'
 import type { HandoffStage } from './SharingMotion'
@@ -418,15 +418,20 @@ function RelayActivity({ state, projects, busy, run, updateSecrets }: {
         <h2 id="relay-activity-heading">Delivery activity</h2>
         {cached && <span>Cached status</span>}
       </div>
-      {state.sent.length === 0 && state.inbox.length === 0 ? (
+      {state.sent.length === 0 && state.inbox.length === 0 && state.tasks.length === 0 ? (
         <div className="empty-state compact"><p>No relay delivery activity is saved on this Mac.</p></div>
       ) : <>
         {state.sent.length > 0 && <table>
           <caption>Sent transfers</caption>
           <thead><tr><th scope="col">Transfer</th><th scope="col">Recipient</th><th scope="col">Delivery</th>
-            <th scope="col">Delivery deadline</th><th scope="col">Recipient access</th></tr></thead>
-          <tbody>{state.sent.map((item) => <RelayActivityRow key={`${item.messageId}/${item.recipient}`} item={item} state={state} />)}</tbody>
+            <th scope="col">Delivery deadline</th><th scope="col">Recipient access</th><th scope="col">Remote demo</th></tr></thead>
+          <tbody>{state.sent.map((item) => <RelayActivityRow key={`${item.messageId}/${item.recipient}`} item={item} state={state}
+            busy={busy} run={run} />)}</tbody>
         </table>}
+        {state.tasks.length > 0 && <div className="relay-inbox">
+          <h3>Remote demo runs</h3>
+          <ul>{state.tasks.map((task) => <RelayTask key={`${task.direction}/${task.messageId}`} task={task} state={state} busy={busy} run={run} />)}</ul>
+        </div>}
         {state.inbox.length > 0 && <div className="relay-inbox">
           <h3>Received transfers</h3>
           <ul>{state.inbox.map((item) => <RelayInboxTransfer key={item.messageId} item={item} state={state}
@@ -525,7 +530,57 @@ function grantText(item: RelayInboxItem): string {
   return item.accessExpiresAt ? `${use} Access expires ${formatTime(item.accessExpiresAt)}.` : `${use} Access does not expire.`
 }
 
-function RelayActivityRow({ item, state }: { item: RelaySentItem; state: RelayState }) {
+// The recipient approves or refuses on its own Mac. Only this window can send that decision.
+function RelayTask({ task, state, busy, run }: { task: RelayTaskItem; state: RelayState; busy: boolean; run: Run }) {
+  const peer = peerName(state, task.peer)
+  const decide = (decision: RelayTaskDecision['decision'], pending: string, done: string) => {
+    if (!task.digest) return
+    const input = { messageId: task.messageId, digest: task.digest, decision }
+    void run(pending, async () => {
+      await window.sct.respondRelayTask(input)
+      return done
+    })
+  }
+  return <li>
+    <div className="relay-inbox-heading">
+      <div>
+        <h4>{task.direction === 'sent' ? `Fixed demo on ${peer}` : `${peer} asks to run the fixed demo`}</h4>
+        <p>Task <code>{shortId(task.messageId)}</code> with grant <code>{task.grantId ? shortId(task.grantId) : 'unknown'}</code>.</p>
+      </div>
+      <span className="delivery-state" data-state={task.state}>{task.state.replace('-', ' ')}</span>
+    </div>
+    {task.projectName && <p>{task.projectName}: {task.secretNames.join(', ')}</p>}
+    <p className="field-help">{relayTaskText(task)}</p>
+    {task.error && <p className="error" role="alert">{task.error}</p>}
+    {task.direction === 'received' && task.state === 'awaiting-approval' && <div className="form-actions">
+      <button type="button" className="secondary" disabled={busy}
+        onClick={() => decide('refuse', 'Refusing the task…', 'The task was refused. .sct sends the refusal.')}>Refuse</button>
+      <button type="button" disabled={busy}
+        onClick={() => decide('approve', 'Running the fixed demo…', 'The run finished. .sct sends the result.')}>Approve once</button>
+    </div>}
+    {task.reviewRequired && <>
+      <p>The app stopped during this run. .sct cannot know whether the demo finished. It does not run this task again.</p>
+      <div className="form-actions">
+        <button type="button" disabled={busy}
+          onClick={() => decide('report', 'Saving the review…', 'The uncertain result is queued for the sender.')}>Send uncertain result</button>
+      </div>
+    </>}
+  </li>
+}
+
+function relayTaskText(task: RelayTaskItem): string {
+  const outcome = task.exitCode === null ? '' : ` Exit code ${task.exitCode}. SCT_DEMO_TOKEN ${task.secretPresent ? 'was' : 'was not'} present.`
+  if (task.direction === 'sent') {
+    if (task.state === 'delivered') return `The other Mac saved the task. Approval is due by ${formatTime(task.approveBy)}.`
+    return task.finishedAt ? `Result from ${formatTime(task.finishedAt)}.${outcome}` : `Approval is due by ${formatTime(task.approveBy)}.`
+  }
+  if (task.state === 'awaiting-approval') return `Approve by ${formatTime(task.approveBy)}. The run injects only these grant secrets and returns no output.`
+  const reply = task.reply === 'none' ? 'The result is not queued.' : `Result delivery: ${task.reply}.`
+  return task.finishedAt ? `Finished ${formatTime(task.finishedAt)}.${outcome} ${reply}` : reply
+}
+
+function RelayActivityRow({ item, state, busy, run }: { item: RelaySentItem; state: RelayState; busy: boolean; run: Run }) {
+  const usable = item.state === 'received' && !item.accessExpiredAt && (!item.accessExpiresAt || Date.parse(item.accessExpiresAt) > Date.now())
   return <tr>
     <td><code>{shortId(item.messageId)}</code></td>
     <td>{peerName(state, item.recipient)}</td>
@@ -535,6 +590,12 @@ function RelayActivityRow({ item, state }: { item: RelaySentItem; state: RelaySt
     </td>
     <td>{item.deliverBy ? formatTime(item.deliverBy) : 'Not cached'}</td>
     <td>{relayAccessText(item)}</td>
+    <td>{usable ? <button type="button" className="secondary" disabled={busy || state.connection !== 'connected'} onClick={() => {
+      void run('Encrypting and saving the task…', async () => {
+        await window.sct.queueRelayTask(item.messageId)
+        return `The task is queued. ${peerName(state, item.recipient)} must approve it on that Mac.`
+      })
+    }}>Request run</button> : 'Not available'}</td>
   </tr>
 }
 

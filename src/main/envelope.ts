@@ -2,8 +2,8 @@ import { createCipheriv, createDecipheriv, createHash, diffieHellman, generateKe
 import type { KeyObject } from 'node:crypto'
 import { decodeBase64, describeDevice, exportPublic, publicKey, readObject, requirePayload, transferLimit } from './transfer'
 import type { DeviceCard, DeviceIdentity } from './transfer'
-import type { RelayExpiryContents, RelayExpiryNotice, RelayGrant, RelayReceipt, RelayReceiptContents,
-  RelayTransfer, RelayTransferContents, RelayWrappedKey } from '../shared/envelope'
+import type { RelayExpiryContents, RelayExpiryNotice, RelayGrant, RelayMessageContents, RelayMessageKind, RelayReceipt,
+  RelayReceiptContents, RelayResultContents, RelayTaskContents, RelayTransfer, RelayTransferContents, RelayWrappedKey } from '../shared/envelope'
 
 // The relay rejects a delivery deadline that is later than this limit.
 export const deliveryLimit = 7 * 24 * 60 * 60 * 1000
@@ -29,23 +29,38 @@ export interface SealedTransfer {
   wrappedKeys: { recipient: string; wrappedKey: Buffer }[]
 }
 
-export interface OpenedTransfer {
+export interface OpenedMessage<K extends RelayMessageKind> {
   transfer: RelayTransfer
   digest: string
-  contents: RelayTransferContents
+  contents: RelayMessageContents[K]
+}
+
+export type OpenedTransfer = OpenedMessage<'transfer'>
+
+const contentReaders: { [K in RelayMessageKind]: (data: Record<string, unknown>, createdAt: number) => RelayMessageContents[K] } = {
+  transfer: requireContents,
+  task: requireTaskContents,
+  result: requireResultContents
+}
+
+export function sealTransfer(self: RelaySelf, recipients: RelayPeerKeys[], contents: RelayTransferContents,
+  deliverBy: number, now = Date.now()): SealedTransfer {
+  return sealMessage(self, recipients, 'transfer', contents, deliverBy, now)
 }
 
 // The payload is encrypted one time. Each recipient gets the message key, encrypted with a key that only that recipient can derive.
-export function sealTransfer(self: RelaySelf, recipients: RelayPeerKeys[], contents: RelayTransferContents,
-  deliverBy: number, now = Date.now()): SealedTransfer {
+// Retries of a queued request reuse its ID, so the caller can supply the ID.
+export function sealMessage<K extends RelayMessageKind>(self: RelaySelf, recipients: RelayPeerKeys[], kind: K,
+  contents: RelayMessageContents[K], deliverBy: number, now = Date.now(), id: string = randomUUID()): SealedTransfer {
   requireRecipients(self, recipients)
-  requireContents({ ...contents }, now)
+  contentReaders[kind]({ ...contents }, now)
+  if (!isMessageId(id)) throw invalid()
   if (!Number.isSafeInteger(deliverBy) || deliverBy <= now || deliverBy - now > deliveryLimit) {
     throw new Error('Set a delivery deadline within the next 7 days.')
   }
   const ephemeral = generateKeyPairSync('x25519')
   const header = {
-    format: 'sct-relay' as const, version: 1 as const, kind: 'transfer' as const, id: randomUUID(),
+    format: 'sct-relay' as const, version: 1 as const, kind, id,
     sender: self.identity, senderDevice: describeDevice(self.keys.card).id,
     recipients: recipients.map((recipient) => recipient.identity).sort(), createdAt: now, deliverBy,
     ephemeralKey: exportPublic(ephemeral.publicKey), iv: randomBytes(12).toString('base64')
@@ -70,7 +85,7 @@ export function sealTransfer(self: RelaySelf, recipients: RelayPeerKeys[], conte
 // Reads the routing fields without decryption, so that the caller can find the verified sender and check for a duplicate ID.
 export function readTransfer(payload: Buffer): RelayTransfer {
   const data = readObject(payload)
-  if (data.format !== 'sct-relay' || data.version !== 1 || data.kind !== 'transfer' || !isMessageId(data.id) ||
+  if (data.format !== 'sct-relay' || data.version !== 1 || !isMessageKind(data.kind) || !isMessageId(data.id) ||
     !isHex(data.sender) || !isHex(data.senderDevice) || !Array.isArray(data.recipients) ||
     data.recipients.length === 0 || data.recipients.length > recipientLimit || !data.recipients.every(isHex) ||
     new Set(data.recipients).size !== data.recipients.length ||
@@ -100,28 +115,38 @@ export function findReceipt<T extends { id: string; digest: string }>(receipts: 
 }
 
 export function openTransfer(self: RelaySelf, sender: RelayPeerKeys, payload: Buffer, wrappedKey: Buffer, now = Date.now()): OpenedTransfer {
-  const transfer = readTransfer(payload)
-  requireTransferRoute(transfer, self, sender)
-  if (!verify(null, transferBody(transfer), publicKey(sender.card.signingKey, 'ed25519'), Buffer.from(transfer.signature, 'base64'))) {
-    throw new Error('The transfer signature is invalid. No secrets were imported.')
+  const opened = openMessage(self, sender, 'transfer', payload, wrappedKey, now)
+  if (opened.contents.grant.accessExpiresAt !== null && opened.contents.grant.accessExpiresAt <= now) {
+    throw new Error('Access to these secrets expired. No secrets were imported.')
   }
-  if (transfer.deliverBy <= now || transfer.createdAt > now + clockSkew) throw new Error('This transfer expired or its creation time is invalid. No secrets were imported.')
-  let contents: RelayTransferContents
+  return opened
+}
+
+// A message of another kind fails, so a task cannot open as a transfer and a result cannot open as a task.
+export function openMessage<K extends RelayMessageKind>(self: RelaySelf, sender: RelayPeerKeys, kind: K, payload: Buffer,
+  wrappedKey: Buffer, now = Date.now()): OpenedMessage<K> {
+  const transfer = readTransfer(payload)
+  if (transfer.kind !== kind) throw invalid()
+  const noun = { transfer: 'transfer', task: 'task', result: 'result' }[kind]
+  const outcome = kind === 'transfer' ? ' No secrets were imported.' : ''
+  requireTransferRoute(transfer, self, sender, noun, outcome)
+  if (!verify(null, transferBody(transfer), publicKey(sender.card.signingKey, 'ed25519'), Buffer.from(transfer.signature, 'base64'))) {
+    throw new Error(`The ${noun} signature is invalid.${outcome}`)
+  }
+  if (transfer.deliverBy <= now || transfer.createdAt > now + clockSkew) throw new Error(`This ${noun} expired or its creation time is invalid.${outcome}`)
+  let contents: RelayMessageContents[K]
   const messageKey = unwrapKey(self, transfer, wrappedKey)
   try {
     const plaintext = decrypt(messageKey, transfer, transferHeader(transfer))
     try {
-      contents = requireContents(readObject(plaintext), transfer.createdAt)
+      contents = contentReaders[kind](readObject(plaintext), transfer.createdAt)
     } finally {
       plaintext.fill(0)
     }
   } catch {
-    throw new Error('Cannot decrypt this transfer. No secrets were imported.')
+    throw new Error(`Cannot decrypt this ${noun}.${outcome}`)
   } finally {
     messageKey.fill(0)
-  }
-  if (contents.grant.accessExpiresAt !== null && contents.grant.accessExpiresAt <= now) {
-    throw new Error('Access to these secrets expired. No secrets were imported.')
   }
   return { transfer, digest: transferDigest(transfer), contents }
 }
@@ -217,10 +242,10 @@ function requireRecipients(self: RelaySelf, recipients: RelayPeerKeys[]): void {
   }
 }
 
-function requireTransferRoute(transfer: RelayTransfer, self: RelaySelf, sender: RelayPeerKeys): void {
-  if (!transfer.recipients.includes(self.identity)) throw new Error('This transfer belongs to a different device. No secrets were imported.')
+function requireTransferRoute(transfer: RelayTransfer, self: RelaySelf, sender: RelayPeerKeys, noun: string, outcome: string): void {
+  if (!transfer.recipients.includes(self.identity)) throw new Error(`This ${noun} belongs to a different device.${outcome}`)
   if (transfer.sender !== sender.identity || transfer.senderDevice !== describeDevice(sender.card).id) {
-    throw new Error('The sender of this transfer is not a verified device. No secrets were imported.')
+    throw new Error(`The sender of this ${noun} is not a verified device.${outcome}`)
   }
 }
 
@@ -237,6 +262,32 @@ function requireGrant(value: unknown, createdAt: number): RelayGrant {
     throw new Error('Set an access deadline after the transfer time, or no access deadline.')
   }
   return { accessExpiresAt: value.accessExpiresAt as number | null, injectionOnly: value.injectionOnly }
+}
+
+// Unknown fields fail, so a task cannot carry a command, an approval, or another operation.
+function requireTaskContents(data: Record<string, unknown>, createdAt: number): RelayTaskContents {
+  if (!hasExactKeys(data, ['operation', 'grantId', 'approveBy']) || data.operation !== 'run_demo' || !isMessageId(data.grantId) ||
+    !Number.isSafeInteger(data.approveBy) || (data.approveBy as number) <= createdAt || (data.approveBy as number) - createdAt > deliveryLimit) {
+    throw invalid()
+  }
+  return { operation: data.operation, grantId: data.grantId, approveBy: data.approveBy as number }
+}
+
+// Only a completed run has an exit code and a presence flag. Other outcomes started no process, or cannot report one.
+function requireResultContents(data: Record<string, unknown>): RelayResultContents {
+  if (!hasExactKeys(data, ['taskId', 'status', 'exitCode', 'secretPresent', 'finishedAt']) || !isMessageId(data.taskId) ||
+    !Number.isSafeInteger(data.finishedAt) || !['completed', 'refused', 'expired', 'failed', 'uncertain'].includes(data.status as string)) {
+    throw invalid()
+  }
+  const completed = data.status === 'completed'
+  if (completed ? !Number.isSafeInteger(data.exitCode) || (data.exitCode as number) < 0 || (data.exitCode as number) > 255 ||
+    typeof data.secretPresent !== 'boolean' : data.exitCode !== null || data.secretPresent !== null) throw invalid()
+  return { taskId: data.taskId, status: data.status as RelayResultContents['status'], exitCode: data.exitCode as number | null,
+    secretPresent: data.secretPresent as boolean | null, finishedAt: data.finishedAt as number }
+}
+
+function hasExactKeys(data: Record<string, unknown>, keys: string[]): boolean {
+  return Object.keys(data).length === keys.length && keys.every((key) => Object.hasOwn(data, key))
 }
 
 function readReceipt(bytes: Buffer): RelayReceipt {
@@ -279,7 +330,7 @@ function readExpiryNotice(bytes: Buffer): RelayExpiryNotice {
 
 function requireReceiptContents(data: Record<string, unknown>): RelayReceiptContents {
   if (data.status !== 'received' || !Number.isSafeInteger(data.receivedAt) || !Number.isSafeInteger(data.secretCount) ||
-    (data.secretCount as number) < 1 || (data.secretCount as number) > 1000) throw invalid()
+    (data.secretCount as number) < 0 || (data.secretCount as number) > 1000) throw invalid()
   return { status: data.status, receivedAt: data.receivedAt as number, secretCount: data.secretCount as number }
 }
 
@@ -379,6 +430,10 @@ function expiryBody(notice: Omit<RelayExpiryNotice, 'signature'>): Buffer {
 
 function isMessageId(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
+}
+
+function isMessageKind(value: unknown): value is RelayMessageKind {
+  return value === 'transfer' || value === 'task' || value === 'result'
 }
 
 function isHex(value: unknown): value is string {

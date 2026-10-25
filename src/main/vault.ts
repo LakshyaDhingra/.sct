@@ -307,6 +307,25 @@ export class Vault {
     })
   }
 
+  // A remote task receives only the secrets of one relay grant. Injection-only grants permit this use.
+  withGrantSecrets<T>(projectId: string, grantId: string, use: (project: Project, values: Record<string, string>) => T | Promise<T>): Promise<T> {
+    return this.serialize(async () => {
+      this.root = await this.readRoot()
+      const project = await this.projects.find(projectId)
+      requireExternalVault(project, this.location())
+      const granted = (await this.readSecrets(project, true)).filter((secret) => secret.transferId?.startsWith(`relay:${grantId}:`))
+      if (!granted.length) throw new Error('The secrets of this grant are no longer in the project.')
+      const environment: Record<string, string> = {}
+      try {
+        const reads = await Promise.allSettled(granted.map((secret) => this.addEnvironmentSecret(project, secret, environment)))
+        for (const read of reads) if (read.status === 'rejected') throw read.reason
+        return await use(project, environment)
+      } finally {
+        for (const name of Object.keys(environment)) delete environment[name]
+      }
+    })
+  }
+
   deleteSecret(input: unknown): Promise<void> {
     return this.serialize(async () => {
       const { projectId, id } = requireSecretReference(input)

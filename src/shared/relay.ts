@@ -1,6 +1,7 @@
 // Relay responses carry metadata only. Payloads, wrapped keys, private keys, and relay tokens stay in the main process.
 
 import type { SecretMetadata } from './secrets'
+import type { RelayTaskOutcome } from './envelope'
 
 // off: the relay is turned off. offline: the app waits for the next connection attempt.
 export type RelayConnection = 'off' | 'connecting' | 'connected' | 'offline'
@@ -73,6 +74,40 @@ export interface RelayAcceptInput {
   projectId: string
 }
 
+// Sent tasks: queued, sent, delivered, then the outcome from the result. A delivery receipt does not show approval or execution.
+// Received tasks: awaiting-approval, running, then the outcome. An uncertain run needs local review before its result is sent.
+export type RelayTaskState = 'queued' | 'sent' | 'delivered' | 'awaiting-approval' | 'running' | RelayTaskOutcome
+
+export interface RelayTaskItem {
+  messageId: string
+  direction: 'sent' | 'received'
+  // The other device: the recipient of a sent task, or the sender of a received task.
+  peer: string
+  grantId: string
+  // Received tasks only. The local approval must supply this digest, so it applies to this exact task.
+  digest: string | null
+  // Received tasks only: the grant contents that the run injects.
+  projectName: string | null
+  secretNames: string[]
+  createdAt: string
+  approveBy: string
+  state: RelayTaskState
+  exitCode: number | null
+  secretPresent: boolean | null
+  finishedAt: string | null
+  // Received tasks only: the delivery state of the encrypted result.
+  reply: 'none' | RelayDeliveryState
+  reviewRequired: boolean
+  error: string | null
+}
+
+export interface RelayTaskDecision {
+  messageId: string
+  digest: string
+  // report sends the uncertain outcome of an interrupted run. It cannot start the task again.
+  decision: 'approve' | 'refuse' | 'report'
+}
+
 export interface RelayState {
   connection: RelayConnection
   // The relay identity of this device, as a hexadecimal string.
@@ -84,6 +119,7 @@ export interface RelayState {
   peers: RelayPeer[]
   inbox: RelayInboxItem[]
   sent: RelaySentItem[]
+  tasks: RelayTaskItem[]
 }
 
 export interface RelayAPI {
@@ -96,4 +132,7 @@ export interface RelayAPI {
   // Returns the message ID of the queued transfer.
   queueRelayTransfer: (input: RelayQueueInput) => Promise<string>
   acceptRelayTransfer: (input: RelayAcceptInput) => Promise<SecretMetadata[]>
+  // The grant ID is the message ID of a received relay transfer to that device. Returns the message ID of the task.
+  queueRelayTask: (grantId: string) => Promise<string>
+  respondRelayTask: (input: RelayTaskDecision) => Promise<void>
 }

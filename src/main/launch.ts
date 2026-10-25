@@ -23,6 +23,22 @@ export function launchCommand(project: Project, environment: NodeJS.ProcessEnv, 
   })
 }
 
+// The fixed demo is the only program that local Agent Access and remote tasks can start. It returns no process output.
+export async function startFixedDemo(project: Project, values: Record<string, string>, executable: string, demo: string,
+  signal?: AbortSignal): Promise<ChildProcess> {
+  const environment: NodeJS.ProcessEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...values }
+  try {
+    return await launchCommand(project, environment, executable, [demo], 'ignore', false, signal)
+  } finally {
+    for (const name of Object.keys(environment)) delete environment[name]
+  }
+}
+
+export async function demoOutcome(child: ChildProcess): Promise<{ exitCode: number; secretPresent: boolean }> {
+  const exitCode = await new Promise<number>((resolve) => child.once('close', (code) => resolve(code ?? 1)))
+  return { exitCode, secretPresent: exitCode === 0 }
+}
+
 export async function runProject(projects: ProjectStore, vault: Vault, args: string[]): Promise<number> {
   const { projectName, executable, commandArgs } = requireRunArguments(args)
   const project = await resolveProject(projects, projectName)

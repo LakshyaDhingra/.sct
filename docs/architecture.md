@@ -242,6 +242,33 @@ An expired grant blocks new starts. It cannot delete credentials from a process 
 Keep receipt distinct from awaiting approval, running, completed, refused, expired, and uncertain execution.
 Local Agent Access stays usable without the relay. Sharing stays usable without an agent.
 
+### Remote demo tasks
+
+The sender of a relay transfer can ask its recipient to run the fixed environment demo with that grant.
+The task can start no other program. It contains no command, approval, or secret value.
+
+1. The sender selects a sent transfer that the recipient imported. The desktop UI or the `request_remote_demo` agent operation submits the task.
+2. The sender app seals a `task` envelope and publishes it through `publishSecret`. The approval deadline is 24 hours.
+3. The recipient app opens the task and checks the sender, the recipient, the grant, and the deadlines.
+   It saves the task record. Then it sends a delivery receipt through `acknowledge`.
+4. The recipient user approves or refuses the task in the **Relay** tab. The decision contains the task digest, so it applies to one exact task.
+5. Before the start, the app runs grant cleanup and checks the grant and the deadline again. Then it saves the execution claim.
+6. The app starts the fixed demo with only the secrets of that grant in the child environment.
+7. The app saves the outcome. Then it seals a `result` envelope and publishes it with one fixed ID. Retries reuse that ID.
+8. The sender app opens the result, checks that it answers a task that it sent to that device, and sends a delivery receipt.
+
+The relay stores tasks and results in the same tables as transfers. It cannot read the kind of contents or the contents.
+A result contains the outcome, the exit code, whether `SCT_DEMO_TOKEN` was present, and the finish time. It contains no process output.
+A task that names no imported grant from its sender is refused without user action. A task after a deadline expires.
+
+A claim without an outcome after a restart becomes `uncertain`. The task does not run again.
+The user must review it before .sct sends the uncertain result and before .sct starts another run.
+The sender must submit a new task to run the demo again.
+
+Only the desktop app writes relay files and runs tasks. An agent session opens a passive relay.
+The passive relay reads the relay rows and the local files. It publishes nothing and acknowledges nothing.
+`request_remote_demo` writes one encrypted request file. The desktop app moves the request into its outbox and deletes the file.
+
 ## Implementation order
 
 Complete local runtime injection before relay setup. Then develop the relay and local Agent Access independently.

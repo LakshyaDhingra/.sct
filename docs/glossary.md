@@ -65,7 +65,7 @@ The docs use some words with one fixed meaning:
 
 ## Relay delivery
 
-These terms describe Phase 2 relay delivery and the planned issue #33. See the [architecture](architecture.md).
+These terms describe Phase 2 relay delivery and the remote demo tasks of issue #33. See the [architecture](architecture.md).
 
 **Admin** — The user who publishes a secret.
 

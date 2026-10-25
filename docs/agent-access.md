@@ -68,7 +68,8 @@ All operations also accept an optional ISO 8601 `expiresAt` deadline.
 | `sharing_state` | None | This device, verified AirDrop recipients, and pending transfer metadata |
 | `pair_device` | `action: "export"`, or `action: "verify"` with `path` | A public device card path or verified device metadata |
 | `send_secrets_to` | `projectId`, `secretIds`, `recipientId` | An encrypted transfer path and `awaiting-transport` status |
-| `relay_status` | None | Relay connection and cached peer, inbox, and sent metadata |
+| `relay_status` | None | Relay connection and cached peer, inbox, sent, and remote task metadata |
+| `request_remote_demo` | `grantId` | The `taskId` and `queued` status of a remote demo task |
 
 Unknown fields and arbitrary commands fail request checks.
 Keep vault storage outside source folders. No operation creates an `.env` file or replacement secret file in the project.
@@ -184,10 +185,17 @@ The user must choose that same recipient in macOS.
 `awaiting-transport` does not prove delivery, receipt, or import.
 The recipient accepts the file and imports it through the desktop app.
 
-`relay_status` starts the relay connection only for an approved request. Other operations open no connection.
-It returns metadata without tokens, payloads, wrapped keys, or private keys.
+`relay_status` and `request_remote_demo` start the relay connection only for an approved request. Other operations open no connection.
+`relay_status` returns metadata without tokens, payloads, wrapped keys, or private keys.
 Identify rows as cached when `connection` is not `connected`. Use `updatedAt` to report their age.
 This interface does not provide relay pairing, publication, or delivery acknowledgments.
+
+`request_remote_demo` asks the recipient of a relay transfer to run the fixed demo with that grant.
+The `grantId` is the `messageId` of a sent transfer with `state: "received"`.
+The agent session writes an encrypted request file. The .sct desktop app sends the task and must be open.
+The recipient approves the task on its own Mac. Read the outcome in the `tasks` rows of `relay_status`.
+`delivered` means that the recipient saved the task. It does not mean approval or execution.
+See [remote demo tasks](architecture.md#remote-demo-tasks).
 See [relay configuration](relay.md) for `SCT_RELAY` and the cache behavior.
 
 ## Standalone runtime

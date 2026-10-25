@@ -5,8 +5,10 @@ import { join } from 'node:path'
 import { createIdentity, decodeIdentity, decryptTransfer, describeDevice, encodeIdentity, encryptTransfer,
   pairingCode, readDeviceCard, readEnvelope, readObject, transferLimit } from './transfer'
 import type { DeviceCard, DeviceIdentity, TransferEnvelope } from './transfer'
-import { openExpiryNotice, openReceipt, openTransfer as openRelayEnvelope, sealExpiryNotice, sealReceipt, sealTransfer } from './envelope'
-import type { RelayPeerKeys, SealedTransfer } from './envelope'
+import { openExpiryNotice, openMessage, openReceipt, openTransfer as openRelayEnvelope, sealExpiryNotice, sealMessage, sealReceipt,
+  sealTransfer } from './envelope'
+import type { OpenedMessage, RelayPeerKeys, SealedTransfer } from './envelope'
+import type { RelayMessageContents, RelayTransfer } from '../shared/envelope'
 import type { Vault } from './vault'
 import type { RelayTransferInput } from '../shared/relay'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../shared/sharing'
@@ -105,6 +107,22 @@ export class Sharing {
     } finally {
       opened.contents.secrets.length = 0
     }
+  }
+
+  // Tasks and results contain no secret values, so the relay connection can read them directly.
+  async prepareRelayMessage<K extends 'task' | 'result'>(identity: string, recipient: RelayPeerKeys, kind: K,
+    contents: RelayMessageContents[K], deliverBy: number, id?: string): Promise<SealedTransfer> {
+    return sealMessage({ identity, keys: await this.getIdentity() }, [recipient], kind, contents, deliverBy, Date.now(), id)
+  }
+
+  async openRelayMessage<K extends 'task' | 'result'>(identity: string, sender: RelayPeerKeys, kind: K,
+    payload: Buffer, wrappedKey: Buffer): Promise<OpenedMessage<K>> {
+    return openMessage({ identity, keys: await this.getIdentity() }, sender, kind, payload, wrappedKey)
+  }
+
+  // A delivery receipt of a task or result confirms storage only. It does not confirm approval or execution.
+  async sealRelayMessageReceipt(identity: string, sender: RelayPeerKeys, message: RelayTransfer, receivedAt: number): Promise<Buffer> {
+    return sealReceipt({ identity, keys: await this.getIdentity() }, sender, message, { status: 'received', receivedAt, secretCount: 0 }, receivedAt)
   }
 
   async verifyRelayReceipt(identity: string, recipient: RelayPeerKeys, transferId: string, receipt: Buffer): Promise<void> {

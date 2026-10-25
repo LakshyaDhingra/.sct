@@ -14,9 +14,32 @@ export interface RelayTransferContents {
   grant: RelayGrant
 }
 
+// A remote task can only start the fixed environment demo with the secrets of one received relay grant.
+// The task contains no command, approval, or secret value. The recipient approves it locally.
+export interface RelayTaskContents {
+  operation: 'run_demo'
+  // The message ID of the relay transfer that delivered the grant from this sender to the recipient.
+  grantId: string
+  // The recipient refuses the task after this time. Milliseconds since the Unix epoch.
+  approveBy: number
+}
+
+export type RelayTaskOutcome = 'completed' | 'refused' | 'expired' | 'failed' | 'uncertain'
+
+// The recipient returns only a bounded outcome. The result contains no process output.
+export interface RelayResultContents {
+  // The message ID of the task that this result answers.
+  taskId: string
+  status: RelayTaskOutcome
+  exitCode: number | null
+  secretPresent: boolean | null
+  finishedAt: number
+}
+
 export interface RelayReceiptContents {
   status: 'received'
   receivedAt: number
+  // The number of imported secrets. A task or result receipt has 0.
   secretCount: number
 }
 
@@ -26,11 +49,20 @@ export interface RelayExpiryContents {
   secretCount: number
 }
 
+// The relay stores every kind through the same reducers and cannot read the contents.
+export type RelayMessageKind = 'transfer' | 'task' | 'result'
+
+export interface RelayMessageContents {
+  transfer: RelayTransferContents
+  task: RelayTaskContents
+  result: RelayResultContents
+}
+
 // Relay identities and device IDs are 64 hexadecimal characters. Keys, IVs, tags, ciphertext, and signatures are base64.
 export interface RelayTransfer {
   format: 'sct-relay'
   version: 1
-  kind: 'transfer'
+  kind: RelayMessageKind
   // The relay message ID. Retries reuse it.
   id: string
   sender: string
