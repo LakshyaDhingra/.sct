@@ -62,7 +62,16 @@ const delivery = table(
   }
 )
 
-const spacetimedb = schema({ device, pair, message, delivery })
+// The signed receipt of one delivery, encrypted for the sender. A separate table keeps the live delivery table unchanged.
+const receipt = table(
+  { name: 'receipt' },
+  {
+    deliveryId: t.u64().primaryKey(),
+    receipt: t.byteArray()
+  }
+)
+
+const spacetimedb = schema({ device, pair, message, delivery, receipt })
 export default spacetimedb
 
 type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>
@@ -126,11 +135,14 @@ export const publishSecret = spacetimedb.reducer(
 )
 
 // The recipient app protects the secret locally before it calls this reducer.
-export const acknowledge = spacetimedb.reducer({ messageId: t.string() }, (ctx, { messageId }) => {
+// The relay stores the receipt without reading it. The sender checks its signature. A second call keeps the first receipt.
+export const acknowledge = spacetimedb.reducer({ messageId: t.string(), receipt: t.byteArray() }, (ctx, { messageId, receipt }) => {
   const [row] = ctx.db.delivery.byMessageRecipient.filter([messageId, ctx.sender])
   if (!row) throw new SenderError('No delivery exists for this device.')
+  if (!receipt.length) throw new SenderError('The receipt is empty.')
   if (row.status.tag === 'Received') return
   ctx.db.delivery.id.update({ ...row, status: { tag: 'Received' }, receivedAt: ctx.timestamp })
+  ctx.db.receipt.insert({ deliveryId: row.id, receipt })
 })
 
 export const myInbox = spacetimedb.view(
@@ -158,14 +170,16 @@ export const mySent = spacetimedb.view(
     messageId: t.string(),
     recipient: t.identity(),
     status: DeliveryStatus,
-    receivedAt: t.option(t.timestamp())
+    receivedAt: t.option(t.timestamp()),
+    receipt: t.option(t.byteArray())
   })),
   (ctx) => [...ctx.db.message.sender.filter(ctx.sender)].flatMap((sent) =>
     [...ctx.db.delivery.byMessageRecipient.filter(sent.id)].map((row) => ({
       messageId: sent.id,
       recipient: row.recipient,
       status: row.status,
-      receivedAt: row.receivedAt
+      receivedAt: row.receivedAt,
+      receipt: ctx.db.receipt.deliveryId.find(row.id)?.receipt
     }))
   )
 )

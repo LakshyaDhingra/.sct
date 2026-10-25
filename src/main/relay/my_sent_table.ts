@@ -21,4 +21,5 @@ export default __t.row({
     return DeliveryStatus;
   },
   receivedAt: __t.option(__t.timestamp()).name("received_at"),
+  receipt: __t.option(__t.byteArray()),
 });
