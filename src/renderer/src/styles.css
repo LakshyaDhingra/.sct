@@ -214,6 +214,17 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
 .delivery-state { color: var(--color-ink-2); }
 .delivery-state[data-state="received"] { color: var(--color-accent); }
 .delivery-state[data-state="failed"], .delivery-state[data-state="expired"] { color: var(--color-muted); }
+.delivery-error { display: block; margin-top: 8px; color: var(--color-muted); overflow-wrap: anywhere; }
+.relay-inbox { margin-top: 28px; }
+.relay-inbox > h3 { margin-bottom: 16px; }
+.relay-inbox > ul { list-style: none; margin: 0 0 28px; border-top: 1px solid var(--color-rule-2); padding: 0; }
+.relay-inbox > ul > li { border-bottom: 1px solid var(--color-rule); padding-block: 20px; }
+.relay-inbox > ul > li > p { margin: 12px 0 0; overflow-wrap: anywhere; }
+.relay-inbox-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.relay-inbox-heading h4 { min-width: 0; margin: 0 0 8px; font-size: 15px; font-weight: var(--display-weight); font-stretch: var(--stretch-display); overflow-wrap: break-word; }
+.relay-inbox-heading p { margin: 0; color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
+.relay-inbox form { margin-top: 16px; border-top: 1px solid var(--color-rule); padding-top: 16px; }
+.relay-inbox form fieldset { margin-top: 0; }
 @media (max-width: 700px) {
   .sharing-tabs { overflow-x: auto; }
   .sharing-tabs > * { flex: 0 0 auto; }
@@ -221,6 +232,7 @@ select:disabled { color: var(--color-muted); cursor: not-allowed; opacity: 0.55;
   .relay-state { justify-self: start; }
   .relay-identity { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .relay-peer-heading { align-items: flex-start; flex-direction: column; }
+  .relay-inbox-heading { flex-direction: column; }
   .relay-deadlines { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .relay-activity thead { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
   .relay-activity tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--color-rule); padding-block: 12px; }

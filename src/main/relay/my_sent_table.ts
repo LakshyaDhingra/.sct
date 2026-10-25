@@ -20,6 +20,7 @@ export default __t.row({
   get status() {
     return DeliveryStatus;
   },
+  deliverBy: __t.timestamp().name("deliver_by"),
   receivedAt: __t.option(__t.timestamp()).name("received_at"),
   receipt: __t.option(__t.byteArray()),
 });

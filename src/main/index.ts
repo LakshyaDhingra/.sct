@@ -140,6 +140,9 @@ app.whenReady().then(async () => {
   const { Relay, relayServer } = await import('./relay-connection')
   const relay = new Relay(relayServer(), join(app.getPath('userData'), 'relay'), sharing.deviceCard.bind(sharing),
     sharing.prepareRelayTransfer.bind(sharing),
+    sharing.previewRelayTransfer.bind(sharing),
+    sharing.acceptRelayTransfer.bind(sharing),
+    sharing.verifyRelayReceipt.bind(sharing),
     () => mainWindow?.webContents.send('relay:changed'))
   await relay.start()
   app.on('will-quit', () => relay.stop())
@@ -148,6 +151,7 @@ app.whenReady().then(async () => {
   handle('relay:confirm-pair', (input) => relay.confirmPair(input))
   handle('relay:remove-pair', (pairId) => relay.removePair(pairId))
   handle('relay:queue-transfer', (input) => relay.queueTransfer(input))
+  handle('relay:accept-transfer', (input) => relay.acceptRelayTransfer(input))
   handle('projects:list', () => projects.list())
   handle('projects:add', (input) => vault.addProject(input))
   handle('projects:rename', (input) => vault.renameProject(input))
@@ -220,6 +224,11 @@ async function runAgentSession(): Promise<number> {
             const service = new Relay(relayServer(), join(app.getPath('userData'), 'relay'),
               async () => (await getSharing()).deviceCard(),
               async (identity, recipient, input) => (await getSharing()).prepareRelayTransfer(identity, recipient, input),
+              async (identity, sender, payload, wrappedKey) => (await getSharing()).previewRelayTransfer(identity, sender, payload, wrappedKey),
+              async (identity, sender, payload, wrappedKey, projectId, beforeWrite) =>
+                (await getSharing()).acceptRelayTransfer(identity, sender, payload, wrappedKey, projectId, beforeWrite),
+              async (identity, recipient, transferId, receipt) =>
+                (await getSharing()).verifyRelayReceipt(identity, recipient, transferId, receipt),
               () => undefined)
             await service.start()
             return service

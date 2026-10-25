@@ -44,6 +44,7 @@ export const InboxItem = __t.object("InboxItem", {
   payload: __t.byteArray(),
   wrappedKey: __t.byteArray(),
   createdAt: __t.timestamp(),
+  deliverBy: __t.timestamp(),
 });
 export type InboxItem = __Infer<typeof InboxItem>;
 
@@ -52,6 +53,7 @@ export const Message = __t.object("Message", {
   sender: __t.identity(),
   payload: __t.byteArray(),
   createdAt: __t.timestamp(),
+  deliverBy: __t.timestamp(),
 });
 export type Message = __Infer<typeof Message>;
 
@@ -112,6 +114,7 @@ export const SentItem = __t.object("SentItem", {
   get status() {
     return DeliveryStatus;
   },
+  deliverBy: __t.timestamp(),
   receivedAt: __t.option(__t.timestamp()),
   receipt: __t.option(__t.byteArray()),
 });

@@ -1,5 +1,7 @@
 // Relay responses carry metadata only. Payloads, wrapped keys, private keys, and relay tokens stay in the main process.
 
+import type { SecretMetadata } from './secrets'
+
 // off: the relay is turned off. offline: the app waits for the next connection attempt.
 export type RelayConnection = 'off' | 'connecting' | 'connected' | 'offline'
 
@@ -28,6 +30,15 @@ export interface RelayInboxItem {
   messageId: string
   sender: string
   createdAt: string
+  deliverBy: string
+  state: 'pending' | 'received' | 'failed'
+  projectName: string | null
+  secretNames: string[]
+  accessExpiresAt: string | null
+  injectionOnly: boolean | null
+  destinationProjectId: string | null
+  receivedAt: string | null
+  error: string | null
 }
 
 export type RelayDeliveryState = 'queued' | 'sent' | 'received' | 'failed' | 'expired'
@@ -49,6 +60,11 @@ export interface RelayTransferInput {
   deliverBy: number
   accessExpiresAt: number | null
   injectionOnly: boolean
+}
+
+export interface RelayAcceptInput {
+  messageId: string
+  projectId: string
 }
 
 export interface RelayState {
@@ -73,4 +89,5 @@ export interface RelayAPI {
   removeRelayPair: (pairId: string) => Promise<void>
   // Returns the message ID of the queued transfer.
   queueRelayTransfer: (input: RelayTransferInput) => Promise<string>
+  acceptRelayTransfer: (input: RelayAcceptInput) => Promise<SecretMetadata[]>
 }
