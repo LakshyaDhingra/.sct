@@ -6,7 +6,7 @@ import type { AgentCaller, AgentInput, AgentOperation, AgentOutcome, AgentReques
 import type { ProjectStore } from './projects'
 import { isProjectName } from './projects'
 import { resolveProject } from './runtime'
-import { launchCommand } from './launch'
+import { demoOutcome, startFixedDemo } from './launch'
 import type { Vault } from './vault'
 import { requireExternalVault } from './vault'
 import type { Sharing } from './sharing'
@@ -210,22 +210,15 @@ export class AgentAccess {
   }
 
   private async runDemo(request: PendingRequest): Promise<AgentResult> {
-    const launch = async (project: Project, value: string) => {
+    const launch = (project: Project, value: string) => {
       requireReviewedProject(request, project)
       requireExternalVault(project, this.vault.location())
       requireActive(request)
-      const environment: NodeJS.ProcessEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SCT_DEMO_TOKEN: value }
-      try {
-        return await launchCommand(project, environment, this.services.executable, [this.services.demo], 'ignore', false, request.controller.signal)
-      } finally {
-        for (const name of Object.keys(environment)) delete environment[name]
-      }
+      return startFixedDemo(project, { SCT_DEMO_TOKEN: value }, this.services.executable, this.services.demo, request.controller.signal)
     }
-    const child = request.stdinValue !== undefined ? await launch(await this.projects.find(requireProject(request).id), request.stdinValue)
+    return demoOutcome(request.stdinValue !== undefined ? await launch(await this.projects.find(requireProject(request).id), request.stdinValue)
       : await this.vault.withSelectedSecrets(requireProject(request).id, request.view.secrets.map((secret) => secret.id),
-        (project, secrets) => launch(project, secrets[0].value.toString('utf8')))
-    const exitCode = await new Promise<number>((resolve) => child.once('close', (code) => resolve(code ?? 1)))
-    return { exitCode, secretPresent: exitCode === 0 }
+        (project, secrets) => launch(project, secrets[0].value.toString('utf8'))))
   }
 }
 
