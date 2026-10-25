@@ -161,6 +161,34 @@ Issue #17 applies this rule to sending.
 The preload bridge exposes `requestRelayPair`, `confirmRelayPair`, and `removeRelayPair`. No screen uses them yet. Issue #14 adds the relay sharing UI.
 `confirmRelayPair` takes the code on the screen. It fails if the current code is different, for example after a key change.
 
+## Relay delivery
+
+The sender selects a verified relay device, secrets, and deadlines on the **Relay** tab.
+The main process reads the selected values and creates one signed encrypted transfer.
+It saves the ciphertext in an encrypted local outbox before publication.
+
+The relay checks the authenticated sender, verified pair, stable message ID, and delivery deadline.
+A retry with the same ID must contain the same ciphertext, recipient, deadline, and wrapped key.
+The relay rejects the ID when any of those fields differ.
+
+The recipient main process verifies and decrypts a pending transfer.
+The renderer receives the project name, secret names, deadlines, and grant restrictions.
+It never receives secret values or private keys.
+The recipient selects a local destination project and selects **Import and send receipt**.
+
+.sct saves the imported values under local vault protection.
+It saves the access deadline and the injection-only restriction with each imported secret.
+An injection-only secret can enter an approved process environment, but .sct cannot share it again.
+An expired grant blocks new local use.
+
+After the vault import, .sct saves an encrypted signed receipt before it acknowledges the delivery.
+The relay keeps the receipt for an offline sender.
+The sender verifies the receipt before it reports durable delivery.
+Retries reuse the original IDs and cannot import the same transfer two times.
+
+Issue #19 adds scheduled expiry cleanup and expiry notifications.
+Issue #20 records the complete two-device security check.
+
 ## Client bindings
 
 `src/main/relay` contains the TypeScript client code that SpacetimeDB generates from `packages/relay`.

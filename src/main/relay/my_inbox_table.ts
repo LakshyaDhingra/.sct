@@ -16,4 +16,5 @@ export default __t.row({
   payload: __t.byteArray(),
   wrappedKey: __t.byteArray().name("wrapped_key"),
   createdAt: __t.timestamp().name("created_at"),
+  deliverBy: __t.timestamp().name("deliver_by"),
 });

@@ -133,7 +133,7 @@ All tables are private. Clients read data only through the views.
 |---|---|---|
 | `device` | `identity` (primary key), `name`, `encryptionPublicKey`, `signingPublicKey`, `registeredAt` | One row for each app installation |
 | `pair` | `id` (primary key), `initiator`, `peer`, `status` (`Pending` or `Verified`) | Two devices that can share secrets |
-| `message` | `id` (primary key, set by the sender), `sender`, `payload`, `createdAt` | One row for each published secret |
+| `message` | `id` (primary key, set by the sender), `sender`, `payload`, `createdAt`, `deliverBy` | One row for each published transfer |
 | `delivery` | `id` (primary key), `messageId`, `recipient`, `wrappedKey`, `status` (`Pending` or `Received`), `receivedAt` | One row for each recipient of a message |
 
 | Reducer | Behavior |
@@ -142,13 +142,13 @@ All tables are private. Clients read data only through the views.
 | `requestPair(peer)` | Creates a `Pending` pair from the caller to the peer. It rejects the request if either device has no `device` row, the peer is the caller, or the two devices already have a pair. |
 | `confirmPair(pairId)` | Sets the pair to `Verified`. Only the peer of the pair can call it. |
 | `removePair(pairId)` | Deletes the pair. Either device of the pair can call it, for example after the pairing codes differ. The devices can then pair again. |
-| `publishSecret(id, payload, recipients)` | Each recipient entry contains a `recipient` identity and a `wrappedKey`. The reducer rejects the request in these cases: the caller has no `device` row, or the list is empty. Also: a recipient occurs more than one time, a recipient has no `Verified` pair with the caller, or the ID is already used. It saves the `message` row and one `Pending` `delivery` row for each recipient in one transaction. |
-| `acknowledge(messageId)` | Sets `Received` and `receivedAt` on the `delivery` row of the caller for that message. It rejects the request if the caller has no `delivery` row for the message. A second call changes nothing. |
+| `publishSecret(id, payload, deliverBy, recipients)` | Saves one message and one pending delivery for each verified recipient. An exact retry with the same ID succeeds. A changed retry fails. |
+| `acknowledge(messageId, receipt)` | Saves the encrypted receipt and marks the caller's delivery as received. A second call keeps the first receipt. |
 
 | View | Rows |
 |---|---|
-| `my_inbox` | The `Pending` deliveries of the caller, each with the `payload` of its message and the `wrappedKey` of the caller |
-| `my_sent` | For each message from the caller, one row for each recipient with `status` and `receivedAt` |
+| `my_inbox` | The caller's pending deliveries with ciphertext, wrapped key, sender, and deadlines |
+| `my_sent` | The caller's deliveries with recipient, deadline, status, receipt, and receipt time |
 | `my_peers` | For each pair of the caller, the pair ID, the pair status, the initiator, and the `device` row of the other device |
 
 The relay takes `sender` from the authenticated caller. It sets `createdAt` and `receivedAt` from server time.
@@ -158,10 +158,10 @@ A third identity sees no rows of another pair.
 
 Issue #11 defines the `pair` table and the pair reducers.
 Both users compare the pairing code in the app before they accept the pair. See [relay pairing](relay.md#pairing).
-This first version does not contain signatures, deadlines, or retries. Issues #16, #19, and #17 add them.
-A reused message ID always fails. Issue #17 adds retries that reuse the original ID.
-Until #19 adds deadlines, messages and delivery rows stay on the relay.
-The first version records receipt with the `acknowledge` reducer. Issue #16 adds the encrypted, authenticated acknowledgment.
+Issue #16 defines the signed encrypted transfer and receipt bytes.
+Issue #17 adds delivery deadlines and exact retries that reuse the original ID.
+Until #19 adds cleanup, expired messages and delivery rows stay on the relay.
+The `acknowledge` reducer stores the encrypted authenticated receipt from issue #16.
 
 ## Phase 2 delivery and expiry rules
 
@@ -253,15 +253,15 @@ Only #33 combines both. A ticket starts when its prerequisites pass. GitHub issu
 | 2.1.2 | [#11](https://github.com/omavashia2005/.sct/issues/11) | Define the relay schema and communication contract | #3 | Done |
 | 2.1.3 | [#12](https://github.com/omavashia2005/.sct/issues/12) | Connect Electron storage to the SpacetimeDB relay | #6, #11 | Done |
 | 2.1.4 | [#15](https://github.com/omavashia2005/.sct/issues/15) | Verify pairing and bind device keys to relay identities | #6, #11, #12 | Done |
-| 2.1.5 | [#16](https://github.com/omavashia2005/.sct/issues/16) | Define encrypted secret transfer and acknowledgment envelopes | #11, #15 | Open |
+| 2.1.5 | [#16](https://github.com/omavashia2005/.sct/issues/16) | Define encrypted secret transfer and acknowledgment envelopes | #11, #15 | Done |
 | 2.1.6 | [#13](https://github.com/omavashia2005/.sct/issues/13) | Secure the sharing operations across the Electron boundary | #12 | Done |
 
 ### Sharing UI, delivery, and security checks
 
 | Order | Issue | Work | Prerequisites | State |
 |---|---|---|---|---|
-| 2.2.1 | [#14](https://github.com/omavashia2005/.sct/issues/14) | Build the secret sharing and delivery activity UI | #13, #15, #16 | Open |
-| 2.2.2 | [#17](https://github.com/omavashia2005/.sct/issues/17) | Deliver secrets and acknowledgments through SpacetimeDB | #3, #11, #12, #15, #16, #13, #14 | Open |
+| 2.2.1 | [#14](https://github.com/omavashia2005/.sct/issues/14) | Build the secret sharing and delivery activity UI | #13, #15, #16 | Done |
+| 2.2.2 | [#17](https://github.com/omavashia2005/.sct/issues/17) | Deliver secrets and acknowledgments through SpacetimeDB | #3, #11, #12, #15, #16, #13, #14 | Done |
 | 2.2.3 | [#19](https://github.com/omavashia2005/.sct/issues/19) | Handle sharing expiry, local cleanup, and retry deadlines | #17 | Open |
 | 2.2.4 | [#20](https://github.com/omavashia2005/.sct/issues/20) | Check secure secret sharing on two devices | #17, #19 | Open |
 

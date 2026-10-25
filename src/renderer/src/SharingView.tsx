@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import type { Project } from '../../shared/projects'
 import type { SecretMetadata } from '../../shared/secrets'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../../shared/sharing'
-import type { RelayPeer, RelaySentItem, RelayState } from '../../shared/relay'
+import type { RelayInboxItem, RelayPeer, RelaySentItem, RelayState } from '../../shared/relay'
 import { errorText, StatusLine, useOperation } from './operation'
 import { Scramble, Transit } from './SharingMotion'
 import type { Loaded, Run, SharingTab, UpdateSecrets } from './types'
@@ -85,7 +85,7 @@ export function SharingView({ projectId, tab, projects, secrets, updateSecrets }
           </div>
           <div hidden={activeTab !== 'relay'}>
             <RelaySharing projectId={projectId} projects={projects} secrets={secrets}
-              busy={operation.busy} run={operation.run} />
+              busy={operation.busy} run={operation.run} updateSecrets={updateSecrets} />
           </div>
         </>
       )}
@@ -149,12 +149,13 @@ function SharingTabs({ activeTab, projectId, canShare }: { activeTab: SharingTab
   )
 }
 
-function RelaySharing({ projectId, projects, secrets, busy, run }: {
+function RelaySharing({ projectId, projects, secrets, busy, run, updateSecrets }: {
   projectId?: string
   projects: Loaded<Project[]>
   secrets: Loaded<SecretMetadata[]>
   busy: boolean
   run: Run
+  updateSecrets: UpdateSecrets
 }) {
   const [relay, setRelay] = useState<Loaded<RelayState>>({ state: 'loading' })
 
@@ -179,7 +180,7 @@ function RelaySharing({ projectId, projects, secrets, busy, run }: {
       <RelayConnection state={relay.value} />
       <RelayPairing state={relay.value} busy={busy} run={run} />
       <RelaySend projectId={projectId} projects={projects} secrets={secrets} state={relay.value} busy={busy} run={run} />
-      <RelayActivity state={relay.value} />
+      <RelayActivity state={relay.value} projects={projects} busy={busy} run={run} updateSecrets={updateSecrets} />
     </>
   )
 }
@@ -363,7 +364,13 @@ function RelaySend({ projectId, projects, secrets, state, busy, run }: {
   )
 }
 
-function RelayActivity({ state }: { state: RelayState }) {
+function RelayActivity({ state, projects, busy, run, updateSecrets }: {
+  state: RelayState
+  projects: Loaded<Project[]>
+  busy: boolean
+  run: Run
+  updateSecrets: UpdateSecrets
+}) {
   const cached = state.connection !== 'connected'
   return (
     <section className="relay-activity" aria-labelledby="relay-activity-heading">
@@ -379,25 +386,100 @@ function RelayActivity({ state }: { state: RelayState }) {
           <thead><tr><th scope="col">Transfer</th><th scope="col">Recipient</th><th scope="col">Status</th><th scope="col">Deadline</th></tr></thead>
           <tbody>{state.sent.map((item) => <RelayActivityRow key={`${item.messageId}/${item.recipient}`} item={item} state={state} />)}</tbody>
         </table>}
-        {state.inbox.length > 0 && <table>
-          <caption>Received ciphertext</caption>
-          <thead><tr><th scope="col">Transfer</th><th scope="col">Sender</th><th scope="col">Received</th></tr></thead>
-          <tbody>{state.inbox.map((item) => <tr key={item.messageId}>
-            <td><code>{shortId(item.messageId)}</code></td>
-            <td>{peerName(state, item.sender)}</td>
-            <td>{formatTime(item.createdAt)}</td>
-          </tr>)}</tbody>
-        </table>}
+        {state.inbox.length > 0 && <div className="relay-inbox">
+          <h3>Received transfers</h3>
+          <ul>{state.inbox.map((item) => <RelayInboxTransfer key={item.messageId} item={item} state={state}
+            projects={projects} busy={busy} run={run} updateSecrets={updateSecrets} />)}</ul>
+        </div>}
       </>}
     </section>
   )
+}
+
+function RelayInboxTransfer({ item, state, projects, busy, run, updateSecrets }: {
+  item: RelayInboxItem
+  state: RelayState
+  projects: Loaded<Project[]>
+  busy: boolean
+  run: Run
+  updateSecrets: UpdateSecrets
+}) {
+  return <li>
+    <div className="relay-inbox-heading">
+      <div>
+        <h4>{item.projectName ?? 'Unreadable transfer'}</h4>
+        <p>From {peerName(state, item.sender)}. Transfer <code>{shortId(item.messageId)}</code>.</p>
+      </div>
+      <span className="delivery-state" data-state={item.state}>{item.state}</span>
+    </div>
+    {item.secretNames.length > 0 && <p>{item.secretNames.join(', ')}</p>}
+    <p className="field-help">Deliver before {formatTime(item.deliverBy)}. {grantText(item)}</p>
+    {item.error && <p className="error" role="alert">{item.error}</p>}
+    <RelayInboxAction item={item} projects={projects} busy={busy} run={run} updateSecrets={updateSecrets} />
+  </li>
+}
+
+function RelayInboxAction({ item, projects, busy, run, updateSecrets }: {
+  item: RelayInboxItem
+  projects: Loaded<Project[]>
+  busy: boolean
+  run: Run
+  updateSecrets: UpdateSecrets
+}) {
+  if (item.state === 'received' && item.receivedAt) return <p className="field-help">
+    Imported {formatTime(item.receivedAt)}. The receipt confirms durable delivery.
+  </p>
+  if (item.state !== 'pending' || projects.state !== 'ready') return null
+  if (projects.value.length === 0) return <p><a href="#/">Add a project</a> before you import this transfer.</p>
+  return <RelayImportForm item={item} projects={projects.value} busy={busy} run={run} updateSecrets={updateSecrets} />
+}
+
+function RelayImportForm({ item, projects, busy, run, updateSecrets }: {
+  item: RelayInboxItem
+  projects: Project[]
+  busy: boolean
+  run: Run
+  updateSecrets: UpdateSecrets
+}) {
+  const [destination, setDestination] = useState(item.destinationProjectId ?? (projects.length === 1 ? projects[0]?.id ?? '' : ''))
+
+  async function accept(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    await run('Verifying and importing the relay transfer…', async () => {
+      const saved = await window.sct.acceptRelayTransfer({ messageId: item.messageId, projectId: destination })
+      updateSecrets((current) => [...current.filter((secret) => !saved.some((added) => added.id === secret.id)), ...saved])
+      return `Imported ${saved.length} ${saved.length === 1 ? 'secret' : 'secrets'}. The encrypted receipt is saved.`
+    })
+  }
+
+  return <form onSubmit={(event) => { void accept(event) }}>
+      <fieldset disabled={busy}>
+        <label htmlFor={`relay-destination-${item.messageId}`}>Destination project</label>
+        <select id={`relay-destination-${item.messageId}`} value={destination} required
+          onChange={(event) => setDestination(event.target.value)}>
+          <option value="">Choose a project</option>
+          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        </select>
+        <div className="form-actions">
+          <button type="submit" disabled={busy || !destination}>Import and send receipt</button>
+        </div>
+      </fieldset>
+    </form>
+}
+
+function grantText(item: RelayInboxItem): string {
+  const use = item.injectionOnly ? 'Injection only.' : 'Resharing is allowed.'
+  return item.accessExpiresAt ? `${use} Access expires ${formatTime(item.accessExpiresAt)}.` : `${use} Access does not expire.`
 }
 
 function RelayActivityRow({ item, state }: { item: RelaySentItem; state: RelayState }) {
   return <tr>
     <td><code>{shortId(item.messageId)}</code></td>
     <td>{peerName(state, item.recipient)}</td>
-    <td><span className="delivery-state" data-state={item.state}>{item.state}</span></td>
+    <td>
+      <span className="delivery-state" data-state={item.state}>{item.state}</span>
+      {item.error && <span className="delivery-error">{item.error}</span>}
+    </td>
     <td>{item.deliverBy ? formatTime(item.deliverBy) : 'Not cached'}</td>
   </tr>
 }

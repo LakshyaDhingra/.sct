@@ -17,6 +17,7 @@ import {
 export default {
   id: __t.string(),
   payload: __t.byteArray(),
+  deliverBy: __t.timestamp(),
   get recipients() {
     return __t.array(RecipientKey);
   },

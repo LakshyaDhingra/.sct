@@ -136,6 +136,50 @@ test('selected secrets enter only the chosen project with fresh local keys and a
   await assert.rejects(reopened.dismissTransfer('../escape'), /invalid/)
 })
 
+test('relay delivery imports once, preserves grant rules, and returns a verified receipt', async (t) => {
+  const { sender, recipient } = await devices(t)
+  const source = await sender.vault.addProject({ name: 'Backend', directory: join(sender.root, 'source') })
+  const target = await recipient.vault.addProject({ name: 'API', directory: join(recipient.root, 'source') })
+  const secret = await sender.vault.addSecret({ projectId: source.id, name: 'TOKEN', value: 'relay value' })
+  const senderIdentity = '11'.repeat(32)
+  const recipientIdentity = '22'.repeat(32)
+  const recipientCard = await recipient.sharing.deviceCard()
+  const senderCard = await sender.sharing.deviceCard()
+  const sealed = await sender.sharing.prepareRelayTransfer(senderIdentity,
+    { identity: recipientIdentity, card: recipientCard }, {
+      projectId: source.id,
+      secretIds: [secret.id],
+      recipient: recipientIdentity,
+      deliverBy: Date.now() + 60_000,
+      accessExpiresAt: Date.now() + 120_000,
+      injectionOnly: true
+    })
+  const wrappedKey = sealed.wrappedKeys[0]?.wrappedKey
+  assert.ok(wrappedKey)
+  const peer = { identity: senderIdentity, card: senderCard }
+  const preview = await recipient.sharing.previewRelayTransfer(recipientIdentity, peer, sealed.payload, wrappedKey)
+  assert.equal(preview.projectName, 'Backend')
+  assert.deepEqual(preview.secretNames, ['TOKEN'])
+  let persisted = 0
+  const accepted = await recipient.sharing.acceptRelayTransfer(recipientIdentity, peer, sealed.payload, wrappedKey,
+    target.id, async (opened) => {
+      persisted += 1
+      assert.equal(opened.digest, preview.digest)
+    })
+  assert.equal(persisted, 1)
+  assert.equal(accepted.secrets.length, 1)
+  await recipient.vault.withSecret(accepted.secrets[0], (value) => assert.equal(value.toString(), 'relay value'))
+  await assert.rejects(recipient.vault.withSelectedSecrets(target.id, accepted.secrets.map((saved) => saved.id), () => undefined),
+    /injection-only grant/)
+  await sender.sharing.verifyRelayReceipt(senderIdentity,
+    { identity: recipientIdentity, card: recipientCard }, sealed.id, accepted.receipt)
+  const repeated = await recipient.sharing.acceptRelayTransfer(recipientIdentity, peer, sealed.payload, wrappedKey,
+    target.id, async () => { persisted += 1 })
+  assert.deepEqual(repeated.secrets, accepted.secrets)
+  assert.equal(persisted, 1)
+  assert.equal((await recipient.vault.listSecrets()).length, 1)
+})
+
 test('batch conflicts leave all existing secrets intact and permit another destination', async (t) => {
   const { sender, recipient } = await devices(t)
   const source = await sender.vault.addProject({ name: 'Source', directory: join(sender.root, 'source') })

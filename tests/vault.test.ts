@@ -103,6 +103,18 @@ test('internal reads clear plaintext after asynchronous success and failure', as
   await vault.withSecret(secret, (buffer) => assert.equal(buffer.toString('utf8'), value))
 })
 
+test('an expired received grant blocks new secret access', async (t) => {
+  const { open, folder } = await setup(t)
+  const vault = await open()
+  const project = await vault.addProject({ name: 'Demo', directory: await folder('demo') })
+  const [secret] = await vault.importSecrets(project.id, [{ name: 'TOKEN', value: 'received value' }],
+    'relay:expired', async () => undefined, { accessExpiresAt: Date.now() - 1, injectionOnly: true })
+  assert.ok(secret)
+  await assert.rejects(vault.withSecret(secret, () => assert.fail('An expired value must not reach the consumer.')), /expired access grant/)
+  await assert.rejects(vault.withSelectedSecrets(project.id, [secret.id], () => undefined), /expired access grant/)
+  await assert.rejects(vault.withProjectEnvironment(project.id, () => undefined), /expired access grant/)
+})
+
 test('internal reads reject invalid references, other projects, and missing or incorrect keys', async (t) => {
   const { root, service, open, keychainKey, folder } = await setup(t)
   const vault = await open()
