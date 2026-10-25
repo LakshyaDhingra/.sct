@@ -94,6 +94,12 @@ export const PeerItem = __t.object("PeerItem", {
 });
 export type PeerItem = __Infer<typeof PeerItem>;
 
+export const Receipt = __t.object("Receipt", {
+  deliveryId: __t.u64(),
+  receipt: __t.byteArray(),
+});
+export type Receipt = __Infer<typeof Receipt>;
+
 export const RecipientKey = __t.object("RecipientKey", {
   recipient: __t.identity(),
   wrappedKey: __t.byteArray(),
@@ -107,6 +113,7 @@ export const SentItem = __t.object("SentItem", {
     return DeliveryStatus;
   },
   receivedAt: __t.option(__t.timestamp()),
+  receipt: __t.option(__t.byteArray()),
 });
 export type SentItem = __Infer<typeof SentItem>;
 

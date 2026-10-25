@@ -168,13 +168,13 @@ function requireCard(data: Record<string, unknown>): DeviceCard {
     encryptionKey: data.encryptionKey as string, signingKey: data.signingKey as string }
 }
 
-function publicKey(value: unknown, type: 'x25519' | 'ed25519'): KeyObject {
+export function publicKey(value: unknown, type: 'x25519' | 'ed25519'): KeyObject {
   const key = createPublicKey({ key: decodeBase64(value, 44), type: 'spki', format: 'der' })
   if (key.asymmetricKeyType !== type) throw invalid()
   return key
 }
 
-function exportPublic(key: KeyObject): string {
+export function exportPublic(key: KeyObject): string {
   return key.export({ type: 'spki', format: 'der' }).toString('base64')
 }
 
@@ -196,7 +196,7 @@ function signedBody(body: Omit<TransferEnvelope, 'signature'>): Buffer {
   return Buffer.concat([authenticatedHeader(body), Buffer.from(body.tag, 'base64'), Buffer.from(body.ciphertext, 'base64')])
 }
 
-function requirePayload(data: Record<string, unknown>): TransferPayload {
+export function requirePayload(data: Record<string, unknown>): TransferPayload {
   if (typeof data.projectName !== 'string' || !data.projectName || data.projectName.length > 100 ||
     !Array.isArray(data.secrets) || data.secrets.length === 0 || data.secrets.length > 1000) throw invalid()
   const names = new Set<string>()
@@ -219,7 +219,7 @@ export function readObject(contents: Buffer): Record<string, unknown> {
   return data as Record<string, unknown>
 }
 
-function decodeBase64(value: unknown, length?: number): Buffer {
+export function decodeBase64(value: unknown, length?: number): Buffer {
   if (typeof value !== 'string' || (length !== undefined && value.length > length * 2)) throw invalid()
   const result = Buffer.from(value, 'base64')
   if (result.toString('base64') !== value || (length !== undefined && result.length !== length)) throw invalid()

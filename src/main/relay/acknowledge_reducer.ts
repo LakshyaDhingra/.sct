@@ -12,4 +12,5 @@ import {
 
 export default {
   messageId: __t.string(),
+  receipt: __t.byteArray(),
 };
