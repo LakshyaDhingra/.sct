@@ -2,31 +2,34 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { cardNotice } from '../../shared/cards'
 import { StatusLine, useOperation } from './operation'
-import { Transit } from './SharingMotion'
+import { HandoffModal } from './SharingMotion'
+import type { HandoffStage } from './SharingMotion'
 
 export function CardsView() {
   const [cardholder, setCardholder] = useState('')
   const [label, setLabel] = useState('')
-  const [sharing, setSharing] = useState(false)
+  const [handoff, setHandoff] = useState<{ stage: HandoffStage; cardholder: string; label: string } | null>(null)
   const operation = useOperation()
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const card = { cardholder: cardholder.trim(), label: label.trim() }
     let id = ''
+    setHandoff({ stage: 'prepare', ...card })
     const created = await operation.run('Creating the signed pass with walletmcppass.com…', async () => {
-      id = await window.sct.createMockCard({ cardholder, label })
+      id = await window.sct.createMockCard(card)
       return 'The signed pass is ready.'
     })
-    if (!created) return
-    setSharing(true)
-    try {
-      await operation.run('Choose the iPhone in the picker.', async () => {
-        await window.sct.shareMockCard(id)
-        return 'If you chose the iPhone, the pass is on its way. The recipient taps Add in Wallet. .sct cannot confirm delivery or installation.'
-      })
-    } finally {
-      setSharing(false)
+    if (!created) {
+      setHandoff(null)
+      return
     }
+    setHandoff({ stage: 'wait', ...card })
+    const shared = await operation.run('Choose the iPhone in the picker.', async () => {
+      await window.sct.shareMockCard(id)
+      return 'If you chose the iPhone, the pass is on its way. The recipient taps Add in Wallet. .sct cannot confirm delivery or installation.'
+    })
+    setHandoff(shared ? { stage: 'handed', ...card } : null)
   }
 
   return (
@@ -57,7 +60,9 @@ export function CardsView() {
             </div>
           </fieldset>
         </form>
-        {sharing && <Transit from="This Mac" to="iPhone" />}
+        {handoff && <HandoffModal heading="Sending a mock card" from="This Mac" to="iPhone" stage={handoff.stage}
+          object={{ shape: 'card', label: 'Not a payment card', title: handoff.cardholder, detail: handoff.label, back: cardNotice }}
+          onDone={() => setHandoff(null)} />}
         <details className="sharing-details">
           <summary>The iPhone is not in the picker?</summary>
           <p>On the iPhone, open Control Center and set AirDrop to Everyone for 10 Minutes. Turn on Wi-Fi and Bluetooth on both devices.</p>

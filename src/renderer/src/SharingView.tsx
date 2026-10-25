@@ -5,7 +5,8 @@ import type { SecretMetadata } from '../../shared/secrets'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../../shared/sharing'
 import type { RelayPeer, RelaySentItem, RelayState } from '../../shared/relay'
 import { errorText, StatusLine, useOperation } from './operation'
-import { Scramble, Transit } from './SharingMotion'
+import { HandoffModal, Scramble } from './SharingMotion'
+import type { HandoffStage } from './SharingMotion'
 import type { Loaded, Run, SharingTab, UpdateSecrets } from './types'
 
 interface SharingViewProps {
@@ -107,6 +108,10 @@ function activeSharingTab(sharing: Loaded<SharingState>, received: boolean, tab?
   if (sharing.state !== 'ready') return 'devices'
   if (!tab && (received || sharing.value.incoming.length > 0)) return 'receive'
   return sharing.value.peers.length > 0 ? tab ?? 'secrets' : 'devices'
+}
+
+function secretCount(count: number): string {
+  return count === 1 ? '1 secret' : `${count} secrets`
 }
 
 function sharingRoute(tab: SharingTab, projectId?: string): string {
@@ -426,7 +431,7 @@ function SendSecrets({ projectId, active, projects, secrets, peers, busy, run }:
   const source = projectId ?? ''
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [recipient, setRecipient] = useState(peers.length === 1 ? peers[0]?.id ?? '' : '')
-  const [sending, setSending] = useState(false)
+  const [handoff, setHandoff] = useState<{ stage: HandoffStage; names: string[]; recipient: string } | null>(null)
   const projectField = useRef<HTMLSelectElement>(null)
   const recipientField = useRef<HTMLSelectElement>(null)
 
@@ -440,15 +445,16 @@ function SendSecrets({ projectId, active, projects, secrets, peers, busy, run }:
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setSending(true)
-    try {
-      await run(`Encrypting the secrets. Choose ${recipientName} in the picker.`, async () => {
-        await window.sct.shareSecrets({ projectId: source, secretIds: [...selected], recipientId: recipient })
-        return `If you chose ${recipientName}, the encrypted secrets are on their way. Their app confirms import.`
-      })
-    } finally {
-      setSending(false)
+    const sent = {
+      names: secrets.state === 'ready' ? secrets.value.filter((secret) => selected.has(secret.id)).map((secret) => secret.name) : [],
+      recipient: recipientName
     }
+    setHandoff({ stage: 'wait', ...sent })
+    const shared = await run(`Encrypting the secrets. Choose ${recipientName} in the picker.`, async () => {
+      await window.sct.shareSecrets({ projectId: source, secretIds: [...selected], recipientId: recipient })
+      return `If you chose ${recipientName}, the encrypted secrets are on their way. Their app confirms import.`
+    })
+    setHandoff(shared ? { stage: 'handed', ...sent } : null)
   }
 
   return (
@@ -481,14 +487,12 @@ function SendSecrets({ projectId, active, projects, secrets, peers, busy, run }:
           </fieldset>
         </form>
       )}
-      {sending && secrets.state === 'ready' && <div className="sharing-motion">
-        <ul className="sharing-names" aria-label="Secrets being encrypted">
-          {secrets.value.filter((secret) => selected.has(secret.id)).map((secret) => (
-            <li key={secret.id}><Scramble text={secret.name} mode="encrypt" /></li>
-          ))}
-        </ul>
-        <Transit from="This Mac" to={recipientName} />
-      </div>}
+      {handoff && <HandoffModal heading={`Sending secrets to ${handoff.recipient}`} from="This Mac" to={handoff.recipient}
+        stage={handoff.stage} onDone={() => setHandoff(null)} object={{
+          shape: 'key',
+          title: secretCount(handoff.names.length),
+          detail: <Scramble text={handoff.names.join(' ')} mode="encrypt" />
+        }} />}
     </section>
   )
 }
@@ -534,7 +538,7 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
 }) {
   const [pairing, setPairing] = useState<PairingPreview | null>(null)
   const [compared, setCompared] = useState(false)
-  const [sendingCard, setSendingCard] = useState(false)
+  const [cardStage, setCardStage] = useState<HandoffStage | null>(null)
   const importButton = useRef<HTMLButtonElement>(null)
   const comparisonHeading = useRef<HTMLHeadingElement>(null)
 
@@ -543,15 +547,12 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
   }, [pairing])
 
   async function shareCard() {
-    setSendingCard(true)
-    try {
-      await run('Choose their Mac in the picker.', async () => {
-        await window.sct.shareDeviceCard()
-        return 'If you chose their Mac, your public device card is on its way. Ask them to send their card back.'
-      })
-    } finally {
-      setSendingCard(false)
-    }
+    setCardStage('wait')
+    const shared = await run('Choose their Mac in the picker.', async () => {
+      await window.sct.shareDeviceCard()
+      return 'If you chose their Mac, your public device card is on its way. Ask them to send their card back.'
+    })
+    setCardStage(shared ? 'handed' : null)
   }
 
   async function addPeer() {
@@ -598,7 +599,12 @@ function DeviceVerification({ projectId, device, peers, busy, run, onVerified }:
           <p>Choose their Mac in the picker. Your card contains public keys only.</p>
           <button type="button" className={pairing || peers.length > 0 ? 'secondary' : undefined} disabled={busy}
             onClick={() => { void shareCard() }}>Send my card to…</button>
-          {sendingCard && <Transit from="This Mac" to="Their Mac" />}
+          {cardStage && <HandoffModal heading="Sending your device card" from="This Mac" to="Their Mac" stage={cardStage}
+            onDone={() => setCardStage(null)} object={{
+              shape: 'key',
+              title: device.name,
+              detail: 'Public keys only'
+            }} />}
         </li>
         <li>
           <h3>Import their device card</h3>
@@ -653,6 +659,9 @@ function ReceiveSecrets({ device, incoming, canImport, receipt, projects, locati
   setReceipt: (receipt: Receipt) => void
   update: (change: (incoming: TransferPreview[]) => TransferPreview[]) => void
 }) {
+  // The arrival modal shows one time for each receipt.
+  const [closedReceipt, setClosedReceipt] = useState<string | null>(null)
+
   async function chooseFile() {
     await run('Reading the received file…', async () => {
       const transfer = await window.sct.pickTransfer()
@@ -666,11 +675,16 @@ function ReceiveSecrets({ device, incoming, canImport, receipt, projects, locati
     <>
       {receipt && <section key={receipt.id} className="panel" aria-labelledby="receipt-heading">
         <h2 id="receipt-heading">Received from {receipt.sender}</h2>
-        <Transit from={receipt.sender} to={receipt.project} arrived />
         <ul className="sharing-names" aria-label={`Secrets imported into ${receipt.project}`}>
           {receipt.names.map((name) => <li key={name}><Scramble text={name} mode="decrypt" /></li>)}
         </ul>
       </section>}
+      {receipt && closedReceipt !== receipt.id && <HandoffModal heading={`Receiving from ${receipt.sender}`}
+        from={receipt.sender} to={receipt.project} stage="arrived" onDone={() => setClosedReceipt(receipt.id)} object={{
+          shape: 'key',
+          title: secretCount(receipt.names.length),
+          detail: receipt.names.join(' ')
+        }} />}
       {incoming.length > 0 && <section className="sharing-section" aria-labelledby="incoming-heading">
         <h2 id="incoming-heading">Received transfers</h2>
         {incoming.map((transfer) => (
