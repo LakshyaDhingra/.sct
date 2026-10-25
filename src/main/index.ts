@@ -170,6 +170,7 @@ app.whenReady().then(async () => {
   handle('relay:queue-task', (grantId) => relay.queueTask(grantId))
   handle('relay:respond-task', (input) => relay.respondTask(input))
   handle('relay:hide-activity', (input) => relay.hideActivity(input))
+  handle('relay:hide-all-activity', () => relay.hideAllActivity())
   handle('projects:list', () => projects.list())
   handle('projects:add', (input) => vault.addProject(input))
   handle('projects:rename', (input) => vault.renameProject(input))

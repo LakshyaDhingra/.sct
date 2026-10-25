@@ -277,7 +277,6 @@ export class Relay {
     // The desktop app can change the files at any time, so an agent session reads them again.
     if (!this.writer && this.server) await this.load()
     const [local, { inbox, sent, tasks }] = await Promise.all([this.deviceCard().catch(() => undefined), this.activity()])
-    // A hidden row that becomes active again shows again.
     const hidden = new Set(this.hidden)
     return {
       connection: this.status,
@@ -286,12 +285,9 @@ export class Relay {
       error: this.error,
       updatedAt: this.cache.updatedAt,
       peers: this.cache.peers.map((peer) => describePeer(peer, local, this.cache.identity, this.pins)),
-      inbox: inbox.filter((item) => !relayInboxFinished(item)
-        || !hidden.has(activityKey({ kind: 'inbox', messageId: item.messageId, peer: item.sender }))),
-      sent: sent.filter((item) => !relaySentFinished(item)
-        || !hidden.has(activityKey({ kind: 'sent', messageId: item.messageId, peer: item.recipient }))),
-      tasks: tasks.filter((item) => !relayTaskFinished(item)
-        || !hidden.has(activityKey({ kind: 'task', messageId: item.messageId, peer: item.peer })))
+      inbox: inbox.filter((item) => !hidden.has(inboxRow(item).hiddenKey)),
+      sent: sent.filter((item) => !hidden.has(sentRow(item).hiddenKey)),
+      tasks: tasks.filter((item) => !hidden.has(taskRow(item).hiddenKey))
     }
   }
 
@@ -301,16 +297,26 @@ export class Relay {
       this.requireWriter()
       const key = activityKey(requireActivityKey(input))
       const rows = activityRows(await this.activity())
-      if (!rows.some((row) => row.key === key && row.finished)) {
-        throw new Error('Only finished delivery activity can be deleted. Refresh the list and try again.')
-      }
-      // Keys of rows that no longer exist go away, so the list does not grow.
-      const current = new Set(rows.map((row) => row.key))
-      const hidden = [...this.hidden.filter((saved) => saved !== key && current.has(saved)), key]
-      await this.writeSealed('hidden', { keys: hidden })
-      this.hidden = hidden
-      this.changed()
+      const row = rows.find((row) => row.key === key && row.finished)
+      if (!row) throw new Error('Only finished delivery activity can be deleted. Refresh the list and try again.')
+      // Keys of rows that no longer exist or changed state go away, so the list does not grow.
+      const current = new Set(rows.map((row) => row.hiddenKey))
+      await this.writeHidden([...this.hidden.filter((saved) => saved !== row.hiddenKey && current.has(saved)), row.hiddenKey])
     })
+  }
+
+  // Deletes all rows from the activity list, also active rows. An active row shows again when its state changes.
+  hideAllActivity(): Promise<void> {
+    return this.serialize(async () => {
+      this.requireWriter()
+      await this.writeHidden(activityRows(await this.activity()).map((row) => row.hiddenKey))
+    })
+  }
+
+  private async writeHidden(keys: string[]): Promise<void> {
+    await this.writeSealed('hidden', { keys })
+    this.hidden = keys
+    this.changed()
   }
 
   queueGrantExpiryNotifications(outcomes: GrantCleanupOutcome[]): Promise<void> {
@@ -1388,11 +1394,26 @@ function peerCard(peer: CachedPeer): DeviceCard | undefined {
 }
 
 function activityRows({ inbox, sent, tasks }: { inbox: RelayInboxItem[]; sent: RelaySentItem[]; tasks: RelayTaskItem[] }) {
-  return [
-    ...inbox.map((item) => ({ key: activityKey({ kind: 'inbox', messageId: item.messageId, peer: item.sender }), finished: relayInboxFinished(item) })),
-    ...sent.map((item) => ({ key: activityKey({ kind: 'sent', messageId: item.messageId, peer: item.recipient }), finished: relaySentFinished(item) })),
-    ...tasks.map((item) => ({ key: activityKey({ kind: 'task', messageId: item.messageId, peer: item.peer }), finished: relayTaskFinished(item) }))
-  ]
+  return [...inbox.map(inboxRow), ...sent.map(sentRow), ...tasks.map(taskRow)]
+}
+
+function inboxRow(item: RelayInboxItem) {
+  return activityRow({ kind: 'inbox', messageId: item.messageId, peer: item.sender }, item.state, relayInboxFinished(item))
+}
+
+function sentRow(item: RelaySentItem) {
+  return activityRow({ kind: 'sent', messageId: item.messageId, peer: item.recipient }, item.state, relaySentFinished(item))
+}
+
+function taskRow(item: RelayTaskItem) {
+  return activityRow({ kind: 'task', messageId: item.messageId, peer: item.peer },
+    item.reviewRequired ? `${item.state}/review` : item.state, relayTaskFinished(item))
+}
+
+// The hidden key includes the row state, so a hidden row that changes state shows again.
+function activityRow(activity: RelayActivityKey, state: string, finished: boolean) {
+  const key = activityKey(activity)
+  return { key, hiddenKey: `${key}#${state}`, finished }
 }
 
 function activityKey({ kind, messageId, peer }: RelayActivityKey): string {

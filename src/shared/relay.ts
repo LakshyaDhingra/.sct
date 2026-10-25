@@ -115,8 +115,8 @@ export interface RelayActivityKey {
   peer: string
 }
 
-// The user can delete only finished rows. A deleted row stays in the local records, so duplicate checks,
-// grants, and cleanup notices continue to work. A row that becomes active again shows again.
+// The user can delete one finished row, or all rows. A deleted row stays in the local records, so duplicate checks,
+// grants, and cleanup notices continue to work. A deleted row that changes state shows again.
 export function relayInboxFinished(item: RelayInboxItem): boolean {
   return item.state !== 'pending'
 }
@@ -157,4 +157,5 @@ export interface RelayAPI {
   queueRelayTask: (grantId: string) => Promise<string>
   respondRelayTask: (input: RelayTaskDecision) => Promise<void>
   hideRelayActivity: (input: RelayActivityKey) => Promise<void>
+  hideAllRelayActivity: () => Promise<void>
 }

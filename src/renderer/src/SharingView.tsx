@@ -477,13 +477,20 @@ function RelayActivity({ state, projects, busy, run, updateProjects, updateSecre
   onImported: (imported: ImportedTransfer) => void
 }) {
   const cached = state.connection !== 'connected'
+  const empty = state.sent.length === 0 && state.inbox.length === 0 && state.tasks.length === 0
   return (
     <section className="relay-activity" aria-labelledby="relay-activity-heading">
       <div className="group-heading">
         <h2 id="relay-activity-heading">Delivery activity</h2>
         {cached && <span>Cached status</span>}
+        {!empty && <button type="button" className="secondary" disabled={busy} onClick={() => {
+          void run('Deleting all activity…', async () => {
+            await window.sct.hideAllRelayActivity()
+            return 'All activity was deleted from this list. A row that changes state shows again.'
+          })
+        }}>Delete all</button>}
       </div>
-      {state.sent.length === 0 && state.inbox.length === 0 && state.tasks.length === 0 ? (
+      {empty ? (
         <div className="empty-state compact"><p>No relay delivery activity is saved on this Mac.</p></div>
       ) : <>
         {state.sent.length > 0 && <table>

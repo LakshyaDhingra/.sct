@@ -59,7 +59,8 @@ const api: SctAPI = {
   acceptRelayTransfer: (input: RelayAcceptInput) => invoke<SecretMetadata[]>('relay:accept-transfer', input),
   queueRelayTask: (grantId: string) => invoke<string>('relay:queue-task', grantId),
   respondRelayTask: (input: RelayTaskDecision) => invoke<void>('relay:respond-task', input),
-  hideRelayActivity: (input: RelayActivityKey) => invoke<void>('relay:hide-activity', input)
+  hideRelayActivity: (input: RelayActivityKey) => invoke<void>('relay:hide-activity', input),
+  hideAllRelayActivity: () => invoke<void>('relay:hide-all-activity')
 }
 
 contextBridge.exposeInMainWorld('sct', api)
