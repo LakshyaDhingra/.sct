@@ -79,6 +79,8 @@ A modal shows each send and each arrival. The **Cards** screen uses the same mod
 - A relay send shows a SpacetimeDB hub in the middle. The key waits in the hub while the transfer is in the queue.
   The key lands on the recipient only when the relay reports `received`. You can close the modal while the key waits.
 - A relay arrival shows the modal only while the **Relay** tab is open.
+- After an import, the key lands on the project that you chose. An AirDrop import starts at the sender.
+  A relay import goes from the sender through the hub.
 - A relay send plays a quiet swoosh. The app makes the sound at run time with the Web Audio API.
 - After the object goes into the rings or lands, the modal closes after 1.5 s.
   You cannot close it while the app makes the file or the transfer, or while the AirDrop picker is open.
