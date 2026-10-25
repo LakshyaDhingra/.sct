@@ -285,9 +285,10 @@ function swoosh(direction: 'in' | 'out', seconds: number): void {
   const filter = audio.createBiquadFilter()
   filter.type = 'lowpass'
   filter.Q.value = 0.7
-  filter.frequency.setValueCurveAtTime(sweep(direction === 'in' ? 2400 : 250, direction === 'in' ? 250 : 2400), now, seconds)
+  filter.frequency.setValueCurveAtTime(sweep(direction === 'in' ? 1600 : 250, direction === 'in' ? 250 : 1600), now, seconds)
   const volume = audio.createGain()
-  volume.gain.setValueCurveAtTime(swell(direction === 'in' ? 0.3 : 0.75, 0.35), now, seconds)
+  // A quiet peak: the sound accompanies a private action, so it stays in the background.
+  volume.gain.setValueCurveAtTime(swell(direction === 'in' ? 0.3 : 0.75, 0.12), now, seconds)
   source.connect(filter).connect(volume).connect(audio.destination)
   source.start(now)
   source.stop(now + seconds)
