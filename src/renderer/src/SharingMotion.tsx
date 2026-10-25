@@ -193,7 +193,7 @@ function choreograph(stage: HandoffStage, previous: HandoffStage | null, via: Ha
     // The previous stage was reverted, so the object starts again from the last prepare frame.
     if (previous === 'prepare') utils.set('.handoff-object', stillFrame('prepare', via))
     else appear(timeline)
-    travel(timeline, 0.5, 14, 800, via === 'relay')
+    travel(timeline, 0.5, 14, 800, via === 'relay' ? 'in' : undefined)
     if (via === 'relay') {
       consume(timeline)
       timeline.call(() => { spinHub() })
@@ -219,7 +219,7 @@ function choreograph(stage: HandoffStage, previous: HandoffStage | null, via: Ha
     // The hub held the object in the queue. It sends the object out to the recipient.
     const timeline = createTimeline({ onComplete: close })
     emit(timeline)
-    travel(timeline, 1, 0, 800, true)
+    travel(timeline, 1, 0, 800, 'out')
     land(timeline)
     return
   }
@@ -247,9 +247,10 @@ function appear(timeline: Timeline): void {
 
 // The object lifts, flips one full turn on its vertical axis along an arc, and levels out at the target.
 // A flight to the middle is shorter than a flight across the whole stage. A relay send plays a swoosh during the flight.
-function travel(timeline: Timeline, to: number, tilt: number, duration = 1100, sound = false): void {
+function travel(timeline: Timeline, to: number, tilt: number, duration = 1100, sound?: 'in' | 'out'): void {
   timeline.add('.handoff-object', { '--y': -16, '--r': -3, duration: 260, ease: 'outQuad' })
-  if (sound) timeline.call(() => { swoosh(duration / 1000) })
+  // The swoosh in also covers the take-in at the hub. The swoosh out also covers the landing.
+  if (sound) timeline.call(() => { swoosh(sound, duration / 1000 + 0.5) })
   timeline
     .add('.handoff-object', {
       '--x': to,
@@ -264,30 +265,50 @@ function travel(timeline: Timeline, to: number, tilt: number, duration = 1100, s
     .set('.handoff-object', { '--ry': 0 })
 }
 
-// A swoosh from white noise: a band-pass filter sweeps up and back down while the volume rises and falls.
-// The sound is made at run time, so no audio file ships with the app.
-function swoosh(seconds: number): void {
+// A swoosh from brown noise through a gentle low-pass filter. The sound is made at run time, so no audio file ships with the app.
+// in: the object goes into the hub. The sound swells early, then fades slowly and falls in pitch (a decrescendo).
+// out: the hub sends the object out. The sound builds slowly and rises in pitch, then eases off (a crescendo).
+function swoosh(direction: 'in' | 'out', seconds: number): void {
   audio ??= new AudioContext()
   void audio.resume()
   const now = audio.currentTime
   const noise = audio.createBuffer(1, Math.ceil(audio.sampleRate * seconds), audio.sampleRate)
   const samples = noise.getChannelData(0)
-  for (let index = 0; index < samples.length; index++) samples[index] = Math.random() * 2 - 1
+  // Brown noise is white noise passed through a leaky integrator. It sounds deeper and softer than white noise.
+  let level = 0
+  for (let index = 0; index < samples.length; index++) {
+    level = (level + 0.02 * (Math.random() * 2 - 1)) / 1.02
+    samples[index] = level * 3.5
+  }
   const source = audio.createBufferSource()
   source.buffer = noise
   const filter = audio.createBiquadFilter()
-  filter.type = 'bandpass'
-  filter.Q.value = 1.4
-  filter.frequency.setValueAtTime(320, now)
-  filter.frequency.exponentialRampToValueAtTime(2800, now + seconds * 0.6)
-  filter.frequency.exponentialRampToValueAtTime(700, now + seconds)
+  filter.type = 'lowpass'
+  filter.Q.value = 0.7
+  filter.frequency.setValueCurveAtTime(sweep(direction === 'in' ? 2400 : 250, direction === 'in' ? 250 : 2400), now, seconds)
   const volume = audio.createGain()
-  volume.gain.setValueAtTime(0.0001, now)
-  volume.gain.exponentialRampToValueAtTime(0.3, now + seconds * 0.45)
-  volume.gain.exponentialRampToValueAtTime(0.0001, now + seconds)
+  volume.gain.setValueCurveAtTime(swell(direction === 'in' ? 0.3 : 0.75, 0.35), now, seconds)
   source.connect(filter).connect(volume).connect(audio.destination)
   source.start(now)
   source.stop(now + seconds)
+}
+
+// A volume curve that rises along a sine-squared ease to the peak, then falls the same way to silence.
+// peakAt is the peak position as a fraction of the sound.
+function swell(peakAt: number, peak: number): Float32Array {
+  return Float32Array.from({ length: 256 }, (_, index) => {
+    const position = index / 255
+    const phase = position < peakAt ? position / peakAt : (1 - position) / (1 - peakAt)
+    return peak * Math.sin((phase * Math.PI) / 2) ** 2
+  })
+}
+
+// A frequency curve that eases from one value to another on an exponential scale, which the ear hears as an even glide.
+function sweep(from: number, to: number): Float32Array {
+  return Float32Array.from({ length: 256 }, (_, index) => {
+    const ease = Math.sin(((index / 255) * Math.PI) / 2) ** 2
+    return from * (to / from) ** ease
+  })
 }
 
 // The relay hub takes the object in: the object shrinks into the center, and the hub swells.
