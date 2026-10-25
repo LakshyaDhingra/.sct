@@ -14,7 +14,7 @@ It uses Electron, React, and TypeScript. Each Mac keeps its own vault and privat
 | Encrypted sharing between Macs through AirDrop | Done |
 | Agent Access: CLI, MCP server, skills, and Claude Code check | Done |
 | Relay connection, encrypted cache, and pairing operations | Done. The pairing has no screen yet. |
-| Relay delivery, expiry, and two-device check | Open: [#14](https://github.com/omavashia2005/.sct/issues/14), [#16](https://github.com/omavashia2005/.sct/issues/16), [#17](https://github.com/omavashia2005/.sct/issues/17), [#19](https://github.com/omavashia2005/.sct/issues/19), [#20](https://github.com/omavashia2005/.sct/issues/20) |
+| Relay delivery, expiry, and two-device check | Open: [#14](https://github.com/omavashia2005/.sct/issues/14), [#17](https://github.com/omavashia2005/.sct/issues/17), [#19](https://github.com/omavashia2005/.sct/issues/19), [#20](https://github.com/omavashia2005/.sct/issues/20) |
 | Remote agent tasks through the relay | Open: [#33](https://github.com/omavashia2005/.sct/issues/33) |
 | Post-MVP | Open: [#22](https://github.com/omavashia2005/.sct/issues/22), [#23](https://github.com/omavashia2005/.sct/issues/23), [#40](https://github.com/omavashia2005/.sct/issues/40) |
 
