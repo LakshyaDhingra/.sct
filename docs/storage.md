@@ -15,6 +15,10 @@ A secret name contains letters, digits, and underscores. It cannot start with a 
 A value can be empty. A value cannot contain a null character, because process environments cannot contain null characters.
 The renderer clears the value field after each request. It never receives a stored value.
 
+A secret that arrives through the relay keeps its grant. See [relay delivery](relay.md#relay-delivery).
+After the access deadline, .sct refuses every read of that secret, including `sct run`.
+.sct does not share an injection-only secret again through AirDrop or the relay.
+
 ## Files and keys
 
 When .sct starts, it makes the vault folder `~/.sct`. Each project has one file: `.sct/[project-name]/secrets.sct`.
