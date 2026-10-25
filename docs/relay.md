@@ -102,7 +102,8 @@ Device private keys and secret values never go to the relay.
 
 ## App connection
 
-The desktop app connects to the relay when it starts. A command-line process does not connect. The only exception is an approved `relay_status` request.
+The desktop app connects to the relay when it starts. A command-line process does not connect. The exceptions are approved `relay_status` and `request_remote_demo` requests.
+An agent session uses a passive relay. It reads the relay rows and the local files again for each state. It publishes nothing, acknowledges nothing, and writes no relay file except a task request.
 
 - The Keychain service `.sct-relay` holds the relay token in `token/<server>/<database>`.
 - After each connection, the app registers the public keys of its AirDrop device card with `registerDevice`.
@@ -120,6 +121,14 @@ The desktop app connects to the relay when it starts. A command-line process doe
   It retains a received record until cleanup can queue its expiry notice, then for the applicable 30-day period.
 - The app saves queued expiry notices in `relay/notices-<server hash>.sct`.
   The Keychain account is `notices/<server>/<database>`.
+- The outbox also holds queued remote tasks and their results. The relay stores them in the same tables as transfers.
+- The app saves received tasks and their execution records in `relay/tasks-<server hash>.sct`.
+  It saves results of the tasks that it sent in `relay/results-<server hash>.sct`.
+  The Keychain accounts are `tasks/<server>/<database>` and `results/<server>/<database>`.
+  The app retains these records for 30 days after their delivery deadline. It keeps an unreviewed uncertain run until the user reviews it.
+- An agent session writes each remote task request to `relay/requests-<server hash>/<task ID>.sct`.
+  The Keychain account is `requests/<server>/<database>`. The authenticated data contains the task ID.
+  The desktop app watches this folder, sends each request, and deletes its file. A request that fails stays and shows its error.
 - Local vault operations do not depend on the relay.
 
 The renderer reads the relay state with `getRelayState` and `onRelayChanged`.
