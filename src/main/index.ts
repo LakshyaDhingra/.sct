@@ -47,9 +47,10 @@ function isAppRequest(event: IpcMainInvokeEvent): boolean {
   const frame = event.senderFrame
   if (event.sender !== mainWindow?.webContents || !frame || frame !== event.sender.mainFrame || !URL.canParse(frame.url)) return false
   const page = new URL(frame.url)
-  return !app.isPackaged && process.env.ELECTRON_RENDERER_URL
-    ? page.origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
-    : page.protocol === 'file:' && page.pathname === pathToFileURL(rendererPage()).pathname
+  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+    return page.origin === URL.parse(process.env.ELECTRON_RENDERER_URL)?.origin
+  }
+  return page.protocol === 'file:' && page.pathname === pathToFileURL(rendererPage()).pathname
 }
 
 function rendererPage(): string {
@@ -138,6 +139,7 @@ app.whenReady().then(async () => {
   await sharing.cleanOutbox()
   const { Relay, relayServer } = await import('./relay-connection')
   const relay = new Relay(relayServer(), join(app.getPath('userData'), 'relay'), sharing.deviceCard.bind(sharing),
+    sharing.prepareRelayTransfer.bind(sharing),
     () => mainWindow?.webContents.send('relay:changed'))
   await relay.start()
   app.on('will-quit', () => relay.stop())
@@ -145,6 +147,7 @@ app.whenReady().then(async () => {
   handle('relay:request-pair', (identity) => relay.requestPair(identity))
   handle('relay:confirm-pair', (input) => relay.confirmPair(input))
   handle('relay:remove-pair', (pairId) => relay.removePair(pairId))
+  handle('relay:queue-transfer', (input) => relay.queueTransfer(input))
   handle('projects:list', () => projects.list())
   handle('projects:add', (input) => vault.addProject(input))
   handle('projects:rename', (input) => vault.renameProject(input))
@@ -214,7 +217,9 @@ async function runAgentSession(): Promise<number> {
           relay ??= (async () => {
             const { Relay, relayServer } = await import('./relay-connection')
             const service = new Relay(relayServer(), join(app.getPath('userData'), 'relay'),
-              async () => (await getSharing()).deviceCard(), () => undefined)
+              async () => (await getSharing()).deviceCard(),
+              async (identity, recipient, input) => (await getSharing()).prepareRelayTransfer(identity, recipient, input),
+              () => undefined)
             await service.start()
             return service
           })()

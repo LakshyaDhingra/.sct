@@ -40,7 +40,7 @@ test('adds existing folders offline and restores projects after restart', async 
       .toEqual(['addProject', 'addSecret', 'chooseVaultLocation', 'confirmRelayPair', 'confirmSharingPeer',
         'deleteProject', 'deleteSecret', 'dismissTransfer', 'getAgentRequests', 'getRelayState', 'getSharingState',
         'getVaultLocation', 'importTransfer', 'listProjects', 'listSecrets', 'onAgentChanged', 'onRelayChanged',
-        'onSharingChanged', 'pickDirectory', 'pickSharingPeer', 'pickTransfer', 'removeRelayPair', 'renameProject',
+        'onSharingChanged', 'pickDirectory', 'pickSharingPeer', 'pickTransfer', 'queueRelayTransfer', 'removeRelayPair', 'renameProject',
         'requestRelayPair', 'respondToAgent', 'shareDeviceCard', 'shareSecrets', 'updateSecret'])
 
     await page.getByRole('button', { name: 'Add a project', exact: true }).click()

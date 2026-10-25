@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import type { Project } from '../../shared/projects'
 import type { SecretMetadata } from '../../shared/secrets'
 import type { PairingPreview, SharingDevice, SharingState, TransferPreview } from '../../shared/sharing'
+import type { RelayPeer, RelaySentItem, RelayState } from '../../shared/relay'
 import { errorText, StatusLine, useOperation } from './operation'
 import { Scramble, Transit } from './SharingMotion'
 import type { Loaded, Run, SharingTab, UpdateSecrets } from './types'
@@ -41,7 +42,7 @@ export function SharingView({ projectId, tab, projects, secrets, updateSecrets }
       <div className="page-heading">
         <div>
           <h1>Sharing</h1>
-          <p className="description">Send encrypted secrets to a nearby Mac. Choose a local project when you receive them.</p>
+          <p className="description">Send encrypted secrets by AirDrop or relay. Received values stay in the main process.</p>
         </div>
       </div>
 
@@ -82,6 +83,10 @@ export function SharingView({ projectId, tab, projects, secrets, updateSecrets }
                 state: 'ready', value: { ...current.value, peers: [...current.value.peers.filter((peer) => peer.id !== device.id), device] }
               } : current)} />
           </div>
+          <div hidden={activeTab !== 'relay'}>
+            <RelaySharing projectId={projectId} projects={projects} secrets={secrets}
+              busy={operation.busy} run={operation.run} />
+          </div>
         </>
       )}
     </>
@@ -97,6 +102,7 @@ interface Receipt {
 
 // A waiting transfer or a new receipt opens the Receive tab unless the route names another tab.
 function activeSharingTab(sharing: Loaded<SharingState>, received: boolean, tab?: SharingTab): SharingTab {
+  if (tab === 'relay') return 'relay'
   if (tab === 'receive') return 'receive'
   if (sharing.state !== 'ready') return 'devices'
   if (!tab && (received || sharing.value.incoming.length > 0)) return 'receive'
@@ -108,20 +114,304 @@ function sharingRoute(tab: SharingTab, projectId?: string): string {
 }
 
 function SharingTabs({ activeTab, projectId, canShare }: { activeTab: SharingTab; projectId?: string; canShare: boolean }) {
+  const navigation = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const showActiveTab = () => {
+      const tabs = navigation.current
+      const active = tabs?.querySelector<HTMLElement>('[aria-current="page"]')
+      if (!tabs || !active) return
+      if (active.offsetLeft < tabs.scrollLeft) tabs.scrollLeft = active.offsetLeft
+      else if (active.offsetLeft + active.offsetWidth > tabs.scrollLeft + tabs.clientWidth) {
+        tabs.scrollLeft = active.offsetLeft + active.offsetWidth - tabs.clientWidth
+      }
+    }
+    showActiveTab()
+    const observer = new ResizeObserver(showActiveTab)
+    if (navigation.current) observer.observe(navigation.current)
+    return () => observer.disconnect()
+  }, [activeTab])
+
   return (
     <>
-      <nav className="sharing-tabs" aria-label="Sharing">
+      <nav ref={navigation} className="sharing-tabs" aria-label="Sharing">
         <a href={sharingRoute('devices', projectId)} aria-current={activeTab === 'devices' ? 'page' : undefined}>Verify devices</a>
         {canShare ? (
           <a href={sharingRoute('secrets', projectId)} aria-current={activeTab === 'secrets' ? 'page' : undefined}>Send secrets</a>
         ) : <span aria-disabled="true" aria-describedby="sharing-verification-required">Send secrets</span>}
         <a href={sharingRoute('receive', projectId)} aria-current={activeTab === 'receive' ? 'page' : undefined}>Receive secrets</a>
+        <a href={sharingRoute('relay', projectId)} aria-current={activeTab === 'relay' ? 'page' : undefined}>Relay</a>
       </nav>
-      {!canShare && <p id="sharing-verification-required" className="field-help sharing-tab-help">
+      {!canShare && activeTab !== 'relay' && <p id="sharing-verification-required" className="field-help sharing-tab-help">
         Verify a device before you can send secrets.
       </p>}
     </>
   )
+}
+
+function RelaySharing({ projectId, projects, secrets, busy, run }: {
+  projectId?: string
+  projects: Loaded<Project[]>
+  secrets: Loaded<SecretMetadata[]>
+  busy: boolean
+  run: Run
+}) {
+  const [relay, setRelay] = useState<Loaded<RelayState>>({ state: 'loading' })
+
+  useEffect(() => {
+    let active = true
+    const refresh = () => {
+      window.sct.getRelayState().then((value) => {
+        if (active) setRelay({ state: 'ready', value })
+      }).catch((cause: unknown) => {
+        if (active) setRelay({ state: 'error', error: errorText(cause, 'Cannot read relay status.') })
+      })
+    }
+    refresh()
+    const unsubscribe = window.sct.onRelayChanged(refresh)
+    return () => { active = false; unsubscribe() }
+  }, [])
+
+  if (relay.state === 'loading') return <p role="status">Loading relay…</p>
+  if (relay.state === 'error') return <p className="error" role="alert">{relay.error}</p>
+  return (
+    <>
+      <RelayConnection state={relay.value} />
+      <RelayPairing state={relay.value} busy={busy} run={run} />
+      <RelaySend projectId={projectId} projects={projects} secrets={secrets} state={relay.value} busy={busy} run={run} />
+      <RelayActivity state={relay.value} />
+    </>
+  )
+}
+
+function RelayConnection({ state }: { state: RelayState }) {
+  const live = state.connection === 'connected'
+  return (
+    <section className="relay-summary" aria-labelledby="relay-heading">
+      <div>
+        <h2 id="relay-heading">Relay sharing</h2>
+        <p>{relayConnectionText(state)}</p>
+      </div>
+      <p className="relay-state" data-state={state.connection}>{live ? 'Live status' : 'Cached status'}</p>
+      {state.identity && <div className="relay-identity">
+        <span>This device’s relay ID</span>
+        <code>{state.identity}</code>
+      </div>}
+      {!live && state.updatedAt && <p className="field-help">Last relay update: {formatTime(state.updatedAt)}.</p>}
+      {state.error && <p className="error" role="alert">{state.error}</p>}
+    </section>
+  )
+}
+
+function relayConnectionText(state: RelayState): string {
+  if (state.connection === 'connected') return state.registered
+    ? 'This Mac is connected. Relay updates appear without a page reload.'
+    : 'This Mac is connected but is not registered yet.'
+  if (state.connection === 'connecting') return 'This Mac is connecting. Saved activity remains available.'
+  if (state.connection === 'offline') return 'The relay is offline. Saved activity can be out of date.'
+  return 'The relay is off. Set SCT_RELAY to connect this app.'
+}
+
+function RelayPairing({ state, busy, run }: { state: RelayState; busy: boolean; run: Run }) {
+  const [identity, setIdentity] = useState('')
+  const [compared, setCompared] = useState<Set<string>>(() => new Set())
+
+  async function requestPair(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    await run('Sending the relay pairing request…', async () => {
+      await window.sct.requestRelayPair(identity)
+      setIdentity('')
+      return 'The relay pairing request was sent.'
+    })
+  }
+
+  return (
+    <section className="panel" aria-labelledby="relay-pair-heading">
+      <h2 id="relay-pair-heading">Pair relay devices</h2>
+      <p>Enter the relay ID from the other Mac. Compare the code on both screens before confirmation.</p>
+      <form onSubmit={(event) => { void requestPair(event) }}>
+        <fieldset disabled={busy || state.connection !== 'connected'}>
+          <label htmlFor="relay-peer-identity">Other device’s relay ID</label>
+          <input id="relay-peer-identity" name="relayPeerIdentity" autoComplete="off" spellCheck="false"
+            value={identity} minLength={64} maxLength={64} pattern="[0-9a-f]{64}" required
+            onChange={(event) => setIdentity(event.target.value.trim().toLowerCase())} />
+          <div className="form-actions">
+            <button type="submit" disabled={busy || identity.length !== 64}>Request pairing</button>
+          </div>
+        </fieldset>
+      </form>
+      {state.peers.length === 0 ? <p className="field-help">No relay devices are paired.</p> : (
+        <ul className="relay-peers" aria-label="Relay devices">
+          {state.peers.map((peer) => <li key={peer.pairId}>
+            <div className="relay-peer-heading">
+              <div><h3>{peer.name}</h3><p>{relayPeerState(peer)}</p></div>
+              <button type="button" className="secondary" disabled={busy} onClick={() => {
+                void run('Removing the relay pair…', async () => {
+                  await window.sct.removeRelayPair(peer.pairId)
+                  return `${peer.name} was removed from relay sharing.`
+                })
+              }}>Remove</button>
+            </div>
+            {peer.code && peer.trust !== 'verified' && <div className="relay-code">
+              <p aria-label={`Pairing code for ${peer.name}`}>{peer.code}</p>
+              <label className="check-field">
+                <input type="checkbox" checked={compared.has(peer.pairId)} onChange={(event) => setCompared((current) => {
+                  const next = new Set(current)
+                  if (event.target.checked) next.add(peer.pairId)
+                  else next.delete(peer.pairId)
+                  return next
+                })} />
+                I compared this code on both Macs
+              </label>
+              <button type="button" disabled={busy || !compared.has(peer.pairId)} onClick={() => {
+                void run('Saving the verified relay device…', async () => {
+                  await window.sct.confirmRelayPair({ pairId: peer.pairId, code: peer.code ?? '' })
+                  return `${peer.name} is verified for relay sharing.`
+                })
+              }}>Confirm relay device</button>
+            </div>}
+          </li>)}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function relayPeerState(peer: RelayPeer): string {
+  if (peer.trust === 'changed') return 'Keys changed. Compare a new code before sharing.'
+  if (peer.trust === 'invalid') return 'The device keys are invalid.'
+  if (peer.trust === 'verified' && peer.status === 'Verified') return 'Verified recipient'
+  return peer.requestedByMe ? 'Waiting for the other device' : 'Pairing request received'
+}
+
+function RelaySend({ projectId, projects, secrets, state, busy, run }: {
+  projectId?: string
+  projects: Loaded<Project[]>
+  secrets: Loaded<SecretMetadata[]>
+  state: RelayState
+  busy: boolean
+  run: Run
+}) {
+  const recipients = state.peers.filter((peer) => peer.status === 'Verified' && peer.trust === 'verified')
+  const [source, setSource] = useState(projectId ?? '')
+  const [recipient, setRecipient] = useState(recipients.length === 1 ? recipients[0]?.identity ?? '' : '')
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [deliverBy, setDeliverBy] = useState('')
+  const [accessExpiresAt, setAccessExpiresAt] = useState('')
+  const [injectionOnly, setInjectionOnly] = useState(true)
+
+  async function queue(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    await run('Encrypting and saving the relay transfer…', async () => {
+      await window.sct.queueRelayTransfer({
+        projectId: source,
+        secretIds: [...selected],
+        recipient,
+        deliverBy: new Date(deliverBy).getTime(),
+        accessExpiresAt: accessExpiresAt ? new Date(accessExpiresAt).getTime() : null,
+        injectionOnly
+      })
+      setSelected(new Set())
+      return 'The encrypted transfer is queued on this Mac.'
+    })
+  }
+
+  return (
+    <section className="panel" aria-labelledby="relay-send-heading">
+      <h2 id="relay-send-heading">Queue a relay transfer</h2>
+      {recipients.length === 0 && <p>Verify a relay device before you queue secrets.</p>}
+      {projects.state === 'ready' && projects.value.length === 0 && <p><a href="#/">Add a project</a> to store and share secrets.</p>}
+      {recipients.length > 0 && projects.state === 'ready' && projects.value.length > 0 && <form onSubmit={(event) => { void queue(event) }}>
+        <fieldset disabled={busy}>
+          <label htmlFor="relay-project">Source project</label>
+          <select id="relay-project" value={source} required onChange={(event) => {
+            setSource(event.target.value)
+            setSelected(new Set())
+          }}>
+            <option value="">Choose a project</option>
+            {projects.value.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+          <label htmlFor="relay-recipient">Verified relay recipient</label>
+          <select id="relay-recipient" value={recipient} required onChange={(event) => setRecipient(event.target.value)}>
+            <option value="">Choose a verified device</option>
+            {recipients.map((peer) => <option key={peer.identity} value={peer.identity}>{peer.name}</option>)}
+          </select>
+          <SecretSelection secrets={secrets} source={source} selected={selected} onChange={setSelected} />
+          <div className="relay-deadlines">
+            <div>
+              <label htmlFor="relay-deliver-by">Deliver before</label>
+              <input id="relay-deliver-by" name="deliverBy" type="datetime-local" required value={deliverBy}
+                onChange={(event) => setDeliverBy(event.target.value)} />
+            </div>
+            <div>
+              <label htmlFor="relay-access-expires">Access expires (optional)</label>
+              <input id="relay-access-expires" name="accessExpiresAt" type="datetime-local" value={accessExpiresAt}
+                onChange={(event) => setAccessExpiresAt(event.target.value)} />
+            </div>
+          </div>
+          <label className="check-field">
+            <input type="checkbox" checked={injectionOnly} onChange={(event) => setInjectionOnly(event.target.checked)} />
+            Allow command injection only. Block reveal, copy, and reshare.
+          </label>
+          <p className="field-help">Queued transfers stay encrypted on this Mac. Secret values never enter this screen.</p>
+          <div className="form-actions">
+            <button type="submit" disabled={busy || !source || !recipient || selected.size === 0 || !deliverBy}>Queue encrypted transfer</button>
+          </div>
+        </fieldset>
+      </form>}
+    </section>
+  )
+}
+
+function RelayActivity({ state }: { state: RelayState }) {
+  const cached = state.connection !== 'connected'
+  return (
+    <section className="relay-activity" aria-labelledby="relay-activity-heading">
+      <div className="group-heading">
+        <h2 id="relay-activity-heading">Delivery activity</h2>
+        {cached && <span>Cached status</span>}
+      </div>
+      {state.sent.length === 0 && state.inbox.length === 0 ? (
+        <div className="empty-state compact"><p>No relay delivery activity is saved on this Mac.</p></div>
+      ) : <>
+        {state.sent.length > 0 && <table>
+          <caption>Sent transfers</caption>
+          <thead><tr><th scope="col">Transfer</th><th scope="col">Recipient</th><th scope="col">Status</th><th scope="col">Deadline</th></tr></thead>
+          <tbody>{state.sent.map((item) => <RelayActivityRow key={`${item.messageId}/${item.recipient}`} item={item} state={state} />)}</tbody>
+        </table>}
+        {state.inbox.length > 0 && <table>
+          <caption>Received ciphertext</caption>
+          <thead><tr><th scope="col">Transfer</th><th scope="col">Sender</th><th scope="col">Received</th></tr></thead>
+          <tbody>{state.inbox.map((item) => <tr key={item.messageId}>
+            <td><code>{shortId(item.messageId)}</code></td>
+            <td>{peerName(state, item.sender)}</td>
+            <td>{formatTime(item.createdAt)}</td>
+          </tr>)}</tbody>
+        </table>}
+      </>}
+    </section>
+  )
+}
+
+function RelayActivityRow({ item, state }: { item: RelaySentItem; state: RelayState }) {
+  return <tr>
+    <td><code>{shortId(item.messageId)}</code></td>
+    <td>{peerName(state, item.recipient)}</td>
+    <td><span className="delivery-state" data-state={item.state}>{item.state}</span></td>
+    <td>{item.deliverBy ? formatTime(item.deliverBy) : 'Not cached'}</td>
+  </tr>
+}
+
+function peerName(state: RelayState, identity: string): string {
+  return state.peers.find((peer) => peer.identity === identity)?.name ?? shortId(identity)
+}
+
+function shortId(value: string): string {
+  return value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-8)}` : value
+}
+
+function formatTime(value: string): string {
+  return new Date(value).toLocaleString()
 }
 
 function SendSecrets({ projectId, active, projects, secrets, peers, busy, run }: {

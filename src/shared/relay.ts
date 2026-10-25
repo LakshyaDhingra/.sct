@@ -30,11 +30,25 @@ export interface RelayInboxItem {
   createdAt: string
 }
 
+export type RelayDeliveryState = 'queued' | 'sent' | 'received' | 'failed' | 'expired'
+
 export interface RelaySentItem {
   messageId: string
   recipient: string
-  status: 'Pending' | 'Received'
+  state: RelayDeliveryState
+  createdAt: string | null
+  deliverBy: string | null
   receivedAt: string | null
+  error: string | null
+}
+
+export interface RelayTransferInput {
+  projectId: string
+  secretIds: string[]
+  recipient: string
+  deliverBy: number
+  accessExpiresAt: number | null
+  injectionOnly: boolean
 }
 
 export interface RelayState {
@@ -57,4 +71,5 @@ export interface RelayAPI {
   requestRelayPair: (identity: string) => Promise<void>
   confirmRelayPair: (input: ConfirmRelayPairInput) => Promise<void>
   removeRelayPair: (pairId: string) => Promise<void>
+  queueRelayTransfer: (input: RelayTransferInput) => Promise<void>
 }
