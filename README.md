@@ -9,6 +9,9 @@ Your project needs no `.env` file.
 - **Sharing.** .sct sends encrypted secrets to a verified Mac through AirDrop or a relay.
 - **Agent Access.** Coding agents use secrets through a CLI and an MCP server. Each request opens a local approval window. Agents never receive secret values.
 
+
+Demo video: https://youtu.be/kQwLTeVe2OE
+
 ## Quick setup
 
 Use macOS, Bun 1.4.4 or later, Node.js 22.18 or later, and the Xcode command line tools.
