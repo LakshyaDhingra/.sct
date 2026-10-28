@@ -29,6 +29,7 @@ security find-identity -v -p codesigning
 
 The output must contain exactly one valid identity named `.sct Development`.
 The packaging command rejects missing or duplicate identities. It does not fall back to unsigned or ad-hoc signing.
+Only `SCT_SIGN=adhoc` selects ad-hoc signing. See [CI release builds](#ci-release-builds).
 
 ## Build and sign
 
@@ -82,6 +83,26 @@ codesign --display --requirements - dist/sct-darwin-arm64/sct.app
 
 The identifier must be `com.omavashia2005.sct`. The authority must be `.sct Development`.
 The designated requirement must remain the same after a rebuild.
+
+## App icon
+
+`build/icon.svg` is the icon source. Its colors copy the renderer role tokens. Its font is Martian Mono.
+After you change the SVG, run `bun run build:icon` from the repository root. Then commit `build/icon.svg` and `build/icon.icns`.
+The command renders the SVG in Electron, because `sips` cannot render OKLCH colors or variable font axes.
+Then it makes the icon sizes with `sips` and the `.icns` file with `iconutil`.
+
+## CI release builds
+
+The Release workflow (`.github/workflows/release.yml`) runs on each push to `main`. It does not wait for the Checks workflow.
+It runs `bun run package:mac` with `SCT_SIGN=adhoc`, because the CI runner has no `.sct Development` identity.
+It puts `sct.app` and an Applications link into `sct-macos-arm64.dmg`.
+Then it replaces the `latest` prerelease and its tag with a new prerelease for the pushed commit.
+A newer push stops an older run.
+
+An ad-hoc signature has no certificate. Thus the identity changes with each build, and the certificate check does not apply.
+macOS Keychain can ask again for access to stored secrets after you install a new build.
+The build has no notarization. Gatekeeper blocks the first start of a downloaded copy. See the README for the steps.
+Use the local identity for development builds.
 
 ## Scope
 

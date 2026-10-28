@@ -12,6 +12,16 @@ Your project needs no `.env` file.
 
 Demo video: https://youtu.be/kQwLTeVe2OE
 
+## Download
+
+Each push to `main` builds an Apple Silicon DMG. Get it from the [latest release](https://github.com/omavashia2005/.sct/releases/tag/latest).
+The app has an ad-hoc signature and no notarization. Thus macOS blocks the first start.
+Copy `sct.app` to Applications. Then right-click the app and select **Open**, or run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/sct.app
+```
+
 ## Quick setup
 
 Use macOS, Bun 1.4.4 or later, Node.js 22.18 or later, and the Xcode command line tools.

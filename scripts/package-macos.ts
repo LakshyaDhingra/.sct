@@ -12,16 +12,9 @@ if (process.platform !== 'darwin' || (process.arch !== 'arm64' && process.arch !
   throw new Error('The signed macOS build requires an Apple Silicon or Intel Mac.')
 }
 
-const identities = execFileSync('/usr/bin/security', ['find-identity', '-v', '-p', 'codesigning'], {
-  encoding: 'utf8'
-}).split('\n').filter((line) => line.trimEnd().endsWith(`"${identityName}"`))
-
-if (identities.length !== 1) {
-  throw new Error(`Keep exactly one valid "${identityName}" identity in your Keychain. See docs/macos-signing.md.`)
-}
-
-const identity = identities[0].match(/\b[0-9A-F]{40}\b/i)?.[0]
-if (!identity) throw new Error('Cannot read the signing certificate fingerprint.')
+// CI has no local identity. SCT_SIGN=adhoc signs without a certificate, which gives no stable identity between builds.
+const adhoc = process.env.SCT_SIGN === 'adhoc'
+const identity = adhoc ? '-' : requireLocalIdentity()
 
 // The main process loads @napi-rs/keyring at runtime. Vite does not bundle native modules, so the app needs a copy.
 // The listed dependency keeps the packager's prune step from removing the copy.
@@ -43,6 +36,7 @@ const [output] = await packager({
   name: 'sct',
   appBundleId: bundleId,
   appCategoryType: 'public.app-category.developer-tools',
+  icon: 'build/icon.icns',
   extendInfo: {
     CFBundleDocumentTypes: [{
       CFBundleTypeName: '.sct encrypted transfer',
@@ -80,8 +74,24 @@ const [output] = await packager({
 
 const appPath = join(output, 'sct.app')
 execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], { stdio: 'inherit' })
-execFileSync('/usr/bin/codesign', [
-  '--verify', '-R', `=identifier "${bundleId}" and certificate leaf = H"${identity}"`, appPath
-], { stdio: 'inherit' })
+if (!adhoc) {
+  execFileSync('/usr/bin/codesign', [
+    '--verify', '-R', `=identifier "${bundleId}" and certificate leaf = H"${identity}"`, appPath
+  ], { stdio: 'inherit' })
+}
 console.log(`Signed app: ${appPath}`)
-console.log(`Signing certificate: ${identityName} (${identity})`)
+console.log(`Signing certificate: ${adhoc ? 'ad-hoc' : `${identityName} (${identity})`}`)
+
+function requireLocalIdentity() {
+  const identities = execFileSync('/usr/bin/security', ['find-identity', '-v', '-p', 'codesigning'], {
+    encoding: 'utf8'
+  }).split('\n').filter((line) => line.trimEnd().endsWith(`"${identityName}"`))
+
+  if (identities.length !== 1) {
+    throw new Error(`Keep exactly one valid "${identityName}" identity in your Keychain. See docs/macos-signing.md.`)
+  }
+
+  const fingerprint = identities[0].match(/\b[0-9A-F]{40}\b/i)?.[0]
+  if (!fingerprint) throw new Error('Cannot read the signing certificate fingerprint.')
+  return fingerprint
+}
