@@ -19,6 +19,7 @@
     "build": "bun run typecheck:tsc && bun run build:sdk && electron-vite build && bun run build:demo && bun run build:airdrop",
     "build:demo": "bun build demo/index.ts --target node --format cjs --outfile out/demo/index.cjs",
     "build:airdrop": "mkdir -p out && swiftc -O native/airdrop.swift -o out/airdrop",
+    "build:icon": "bun build scripts/build-icon.ts --target node --format esm --external electron --outfile out/build-icon.mjs && electron out/build-icon.mjs",
     "package:mac": "bun run build && bun scripts/package-macos.ts",
     "install:cli": "bun scripts/install-cli.ts",
     "build:sdk": "bun build packages/env/src/index.ts --target node --format esm --outfile packages/env/dist/index.js && bun node_modules/@typescript/native/bin/tsc -p packages/env/tsconfig.json",

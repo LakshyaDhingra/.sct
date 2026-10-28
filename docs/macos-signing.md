@@ -84,6 +84,13 @@ codesign --display --requirements - dist/sct-darwin-arm64/sct.app
 The identifier must be `com.omavashia2005.sct`. The authority must be `.sct Development`.
 The designated requirement must remain the same after a rebuild.
 
+## App icon
+
+`build/icon.svg` is the icon source. Its colors copy the renderer role tokens. Its font is Martian Mono.
+After you change the SVG, run `bun run build:icon` from the repository root. Then commit `build/icon.svg` and `build/icon.icns`.
+The command renders the SVG in Electron, because `sips` cannot render OKLCH colors or variable font axes.
+Then it makes the icon sizes with `sips` and the `.icns` file with `iconutil`.
+
 ## CI release builds
 
 The Release workflow (`.github/workflows/release.yml`) runs on each push to `main`. It does not wait for the Checks workflow.

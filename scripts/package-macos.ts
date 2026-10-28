@@ -36,6 +36,7 @@ const [output] = await packager({
   name: 'sct',
   appBundleId: bundleId,
   appCategoryType: 'public.app-category.developer-tools',
+  icon: 'build/icon.icns',
   extendInfo: {
     CFBundleDocumentTypes: [{
       CFBundleTypeName: '.sct encrypted transfer',
