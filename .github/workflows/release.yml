@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+# Each push replaces the same "latest" release. A newer push cancels an older run.
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS DMG
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run package:mac
+        env:
+          SCT_SIGN: adhoc
+      - name: Create DMG
+        run: |
+          mkdir dist/dmg
+          ditto dist/sct-darwin-arm64/sct.app dist/dmg/sct.app
+          ln -s /Applications dist/dmg/Applications
+          hdiutil create -volname sct -srcfolder dist/dmg -format UDZO dist/sct-macos-arm64.dmg
+      - name: Publish latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest dist/sct-macos-arm64.dmg --prerelease --target "$GITHUB_SHA" \
+            --title "Latest build (${GITHUB_SHA::7})" \
+            --notes "Apple Silicon build of $GITHUB_SHA. The app has an ad-hoc signature and no notarization. After you copy sct.app to Applications, right-click it and select Open, or run: xattr -dr com.apple.quarantine /Applications/sct.app"
